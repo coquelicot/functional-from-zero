@@ -1,4 +1,4 @@
-#include <istream>
+#include <deque>
 #include <sstream>
 #include <iostream>
 #include <vector>
@@ -91,105 +91,152 @@ shared_ptr<lmb_t> val_lmb_t::exec(shared_ptr<lmb_t> arg) {
 
 struct tokenizer_t {
 
-    string next;
-    stringstream stm;
+    istream &stm;
+    string spe_chars;
+    deque<string> toks;
 
-    tokenizer_t(stringstream &_stm) {
-        stm << _stm.rdbuf();
+    tokenizer_t(istream &_stm) : stm(_stm), spe_chars("()\\") {}
+
+    string peak() {
+        while (toks.empty())
+            if (!_read_more())
+                return "";
+        return toks.front();
     }
 
     string pop() {
         string retv = peak();
-        next = extract_next();
+        toks.pop_front();
         return retv;
     }
 
-    string peak() {
-        if (next == "")
-            next = extract_next();
-        return next;
+    bool _read_more() {
+
+        string line;
+        do {
+            if (!getline(stm, line))
+                return false;
+        } while (line.length() == 0 || line[0] == '#');
+
+        _parse(line);
+        return true;
     }
 
-    string extract_next() {
+    void _parse(string &line) {
 
-        char c;
-        do {
-            if (!stm.get(c))
-                return "";
-        } while (isspace(c));
+        stringstream buf(line);
 
-        if (string("()\\").find(c) != string::npos)
-            return string(1, c);
+        while (true) {
 
-        string ident;
-        do {
-            ident += c;
-            if (!stm.get(c))
-                return ident;
-        } while (!isspace(c) && string("()\\").find(c) == string::npos);
+            char c;
+            do {
+                if (!buf.get(c))
+                    return;
+            } while (isspace(c));
 
-        stm.unget();
-        return ident;
+            if (spe_chars.find(c) != string::npos) {
+                toks.push_back(string(1, c));
+                continue;
+            }
+
+            // identity
+            string tok;
+            do {
+                tok += c;
+                if (!buf.get(c)) {
+                    toks.push_back(tok);
+                    return;
+                }
+            } while (!isspace(c) && spe_chars.find(c) == string::npos);
+
+            toks.push_back(tok);
+            buf.unget();
+        }
     }
 
 };
 
-string indent(int depth) {
-    return string(depth * 1, ' ');
-}
+struct parser_t {
 
-shared_ptr<expr_t> compile(tokenizer_t *tok, map<string, int> &ref, int depth=0) {
+    parser_t() {}
 
-    string token = tok->pop();
-    cerr << indent(depth) << "tok: " << token << endl;
-
-    if (token == "(") {
-
-        cerr << indent(depth) << "<<func" << endl;
-        shared_ptr<expr_t> func = compile(tok, ref, depth+1);
-        cerr << indent(depth) << "func>>" << endl;
-        vector<shared_ptr<expr_t>> args;
-        while (tok->peak() != ")") {
-            cerr << indent(depth) << "<<arg" << endl;
-            args.push_back(compile(tok, ref, depth+1));
-            cerr << indent(depth) << "arg>>" << endl;
-        }
-        tok->pop();
-
-        return make_shared<apply_expr_t>(func, args);
-
-    } else if (token == "\\") {
-
-        map<string, int> nref;
-        string arg = tok->pop();
-        cerr << indent(depth) << "def: " << arg << endl;
-        cerr << indent(depth) << "<<lmb" << endl;
-        shared_ptr<expr_t> body = compile(tok, nref, depth+1);
-        cerr << indent(depth) << "lmb>>" << endl;
-
-        vector<int> arg_map(nref.size());
-        for (auto pair : nref) {
-            if (pair.first == arg) {
-                arg_map[pair.second] = -1;
-            } else {
-                if (!ref.count(pair.first))
-                    ref.insert(make_pair(pair.first, ref.size()));
-                cerr << indent(depth) << "cap: " << pair.first << endl;
-                arg_map[pair.second] = ref[pair.first];
-            }
-        }
-
-        int idx = nref.count(arg) ? nref[arg] : -1;
-        return make_shared<lmb_expr_t>(idx, arg_map, body);
-
-    } else {
-        cerr << indent(depth) << "ref: " << token << endl;
-        if (!ref.count(token))
-            ref.insert(make_pair(token, ref.size()));
-        return make_shared<ref_expr_t>(ref[token]);
+    string indent(int depth) {
+        return string(depth * 1, ' ');
     }
 
-}
+    shared_ptr<expr_t> compile(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
+
+        string token = tok.pop();
+        cerr << indent(depth) << "tok: " << token << endl;
+
+        assert(token != "");
+
+        if (token == "(") {
+
+            cerr << indent(depth) << "<<func" << endl;
+            shared_ptr<expr_t> func = compile(tok, ref, depth+1);
+            cerr << indent(depth) << "func>>" << endl;
+            vector<shared_ptr<expr_t>> args;
+            while (tok.peak() != ")") {
+                cerr << indent(depth) << "<<arg" << endl;
+                args.push_back(compile(tok, ref, depth+1));
+                cerr << indent(depth) << "arg>>" << endl;
+            }
+            tok.pop();
+
+            return make_shared<apply_expr_t>(func, args);
+
+        } else if (token == "\\") {
+
+            map<string, int> nref;
+            string arg = tok.pop();
+            cerr << indent(depth) << "def: " << arg << endl;
+            cerr << indent(depth) << "<<lmb" << endl;
+            shared_ptr<expr_t> body = compile(tok, nref, depth+1);
+            cerr << indent(depth) << "lmb>>" << endl;
+
+            vector<int> arg_map(nref.size());
+            for (auto pair : nref) {
+                if (pair.first == arg) {
+                    arg_map[pair.second] = -1;
+                } else {
+                    if (!ref.count(pair.first))
+                        ref.insert(make_pair(pair.first, ref.size()));
+                    cerr << indent(depth) << "cap: " << pair.first << endl;
+                    arg_map[pair.second] = ref[pair.first];
+                }
+            }
+
+            int idx = nref.count(arg) ? nref[arg] : -1;
+            return make_shared<lmb_expr_t>(idx, arg_map, body);
+
+        } else {
+            cerr << indent(depth) << "ref: " << token << endl;
+            if (!ref.count(token))
+                ref.insert(make_pair(token, ref.size()));
+            return make_shared<ref_expr_t>(ref[token]);
+        }
+
+    }
+
+    bool run_once(tokenizer_t &tok, map<string, shared_ptr<lmb_t>> &env) {
+
+        if (tok.peak() == "")
+            return false;
+
+        map<string, int> ref;
+        shared_ptr<expr_t> prog = compile(tok, ref);
+
+        vector<shared_ptr<lmb_t>> nenv(ref.size());
+        for (auto pair : ref) {
+            assert(env.count(pair.first));
+            nenv[pair.second] = env[pair.first];
+        }
+
+        prog->eval(nenv);
+        return true;
+    }
+};
 
 void shift(int bit) {
 
@@ -220,30 +267,12 @@ struct put1_lmb_t : public lmb_t {
 
 int main() {
 
-    string line;
-    stringstream ss;
-    while (getline(cin, line)) {
-        if (line.length() && line[0] == '#')
-            continue;
-        ss << line;
-    }
+    tokenizer_t toks(cin);
+    parser_t parser;
 
-    map<string, int> ref;
-    shared_ptr<expr_t> prog = compile(new tokenizer_t(ss), ref);
+    map<string, shared_ptr<lmb_t>> env;
+    env["p0"] = make_shared<put0_lmb_t>();
+    env["p1"] = make_shared<put1_lmb_t>();
 
-    for (auto p : ref)
-        cerr << "gbl: " << p.first << endl;
-
-    vector<shared_ptr<lmb_t>> env(ref.size());
-    if (ref.count("p0")) {
-        env[ref["p0"]] = make_shared<put0_lmb_t>();
-        ref.erase("p0");
-    }
-    if (ref.count("p1")) {
-        env[ref["p1"]] = make_shared<put1_lmb_t>();
-        ref.erase("p1");
-    }
-
-    assert(ref.size() == 0);
-    prog->eval(env);
+    while (parser.run_once(toks, env));
 }
