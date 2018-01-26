@@ -93,34 +93,53 @@
   define (++ '8') \'9'
   define (++ 9) \endl
 
-  define (pair 1 (: p0 [])) \mp0
-  define (pair 1 (: p1 [])) \mp1
-  define (pair 1 []) \noio
-  define (\p1 \p2 pair 1 (+++ (second p1) (second p2))) \>>
-
-  define (pair 0 0) \end
+# IO a = w -> (a, w)
+  define (\w ++ w) \next_w
+# IO a -> w -> (a, w)
+  define (\io \w io w) \run_io
+# IO a -> (a -> IO b) -> IO b
   define (
-    (Y \do \xs \p
-      if (first p)
-        (\_ do (+++ xs (second p)))
-        (\_ pair 1 xs))
-    []
-  ) \do
-  define (\f \xs foldr >> noio (map f xs)) \mapM
+    \io \f \w
+      define (run_io io w) \paw
+      define (f (first paw)) \iob
+      run_io iob (second paw)
+  ) \>>=
+# IO a -> IO b -> IO b
+  define (\a \b >>= a (\_ b)) \>>
+# a -> IO a  (a -> w -> (a, w))
+  define pair \return
+# IO ()
+  define (\w pair (p0 w) (next_w w)) \mp0
+# IO ()
+  define (\w pair (p1 w) (next_w w)) \mp1
+# IO ()
+  define (\w pair . w) \noio
+
+# (a -> IO b) -> [a] -> IO [b]
+  define (
+    \f \xs
+      (Y \run_ios \xs \_
+        if (emp? xs)
+          (\_ [])
+          (\_ : (run_io (head xs) _) (run_ios (tail xs) _)))
+      (map f xs)
+  ) \mapM
 
   define (. (mapM (\b if b (\_ mp1) (\_ mp0))) bin) \putc
   define (\xs >> (mapM putc xs) (putc endl)) \puts
 
-  (.
-    (Y \exec \xs
-      if (emp? xs)
-        (\_ .)
-        (\_ pair (head xs .) (exec (tail xs))))
-    second
-  )
+  run_io (
 
-  (
-    puts (map (+ '0') peter)
-  )
+    >>=
+      (puts (map (+ '0') peter))
+    \_ >>=
+      (puts (map (+ '0') tmt))
+    \_ >>=
+      (puts (map (+ '0') peter))
+    \_ >>=
+      (puts (map (+ '0') tmt))
+    \_ noio
+
+  ) 0
 
 ) (\v \f f v))
