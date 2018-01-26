@@ -164,7 +164,7 @@ struct parser_t {
         return string(depth * 1, ' ');
     }
 
-    shared_ptr<expr_t> compile(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
+    shared_ptr<expr_t> parse_single_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
 
         string token = tok.pop();
         cerr << indent(depth) << "tok: " << token << endl;
@@ -172,51 +172,57 @@ struct parser_t {
         assert(token != "");
 
         if (token == "(") {
-
-            cerr << indent(depth) << "<<func" << endl;
-            shared_ptr<expr_t> func = compile(tok, ref, depth+1);
-            cerr << indent(depth) << "func>>" << endl;
-            vector<shared_ptr<expr_t>> args;
-            while (tok.peak() != ")") {
-                cerr << indent(depth) << "<<arg" << endl;
-                args.push_back(compile(tok, ref, depth+1));
-                cerr << indent(depth) << "arg>>" << endl;
-            }
+            cerr << indent(depth) << "<<app" << endl;
+            auto retv = parse_expr(tok, ref, depth+1);
+            cerr << indent(depth) << "app>>" << endl;
             tok.pop();
-
-            return make_shared<apply_expr_t>(func, args);
-
-        } else if (token == "\\") {
-
-            map<string, int> nref;
-            string arg = tok.pop();
-            cerr << indent(depth) << "def: " << arg << endl;
-            cerr << indent(depth) << "<<lmb" << endl;
-            shared_ptr<expr_t> body = compile(tok, nref, depth+1);
-            cerr << indent(depth) << "lmb>>" << endl;
-
-            vector<int> arg_map(nref.size());
-            for (auto pair : nref) {
-                if (pair.first == arg) {
-                    arg_map[pair.second] = -1;
-                } else {
-                    if (!ref.count(pair.first))
-                        ref.insert(make_pair(pair.first, ref.size()));
-                    cerr << indent(depth) << "cap: " << pair.first << endl;
-                    arg_map[pair.second] = ref[pair.first];
-                }
-            }
-
-            int idx = nref.count(arg) ? nref[arg] : -1;
-            return make_shared<lmb_expr_t>(idx, arg_map, body);
-
-        } else {
+            return retv;
+        }
+        if (token != "\\") {
             cerr << indent(depth) << "ref: " << token << endl;
             if (!ref.count(token))
                 ref.insert(make_pair(token, ref.size()));
             return make_shared<ref_expr_t>(ref[token]);
         }
 
+        // lambda
+
+        map<string, int> nref;
+        string arg = tok.pop();
+        cerr << indent(depth) << "def: " << arg << endl;
+        cerr << indent(depth) << "<<lmb" << endl;
+        shared_ptr<expr_t> body = parse_expr(tok, nref, depth+1);
+        cerr << indent(depth) << "lmb>>" << endl;
+
+        vector<int> arg_map(nref.size());
+        for (auto pair : nref) {
+            if (pair.first == arg) {
+                arg_map[pair.second] = -1;
+            } else {
+                if (!ref.count(pair.first))
+                    ref.insert(make_pair(pair.first, ref.size()));
+                cerr << indent(depth) << "cap: " << pair.first << endl;
+                arg_map[pair.second] = ref[pair.first];
+            }
+        }
+
+        int idx = nref.count(arg) ? nref[arg] : -1;
+        return make_shared<lmb_expr_t>(idx, arg_map, body);
+    }
+
+    shared_ptr<expr_t> parse_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
+
+        cerr << indent(depth) << "<<func" << endl;
+        shared_ptr<expr_t> func = parse_single_expr(tok, ref, depth+1);
+        cerr << indent(depth) << "func>>" << endl;
+        vector<shared_ptr<expr_t>> args;
+        while (tok.peak() != ")" && tok.peak() != "") {
+            cerr << indent(depth) << "<<arg" << endl;
+            args.push_back(parse_single_expr(tok, ref, depth+1));
+            cerr << indent(depth) << "arg>>" << endl;
+        }
+
+        return make_shared<apply_expr_t>(func, args);
     }
 
     bool run_once(tokenizer_t &tok, map<string, shared_ptr<lmb_t>> &env) {
@@ -225,10 +231,11 @@ struct parser_t {
             return false;
 
         map<string, int> ref;
-        shared_ptr<expr_t> prog = compile(tok, ref);
+        shared_ptr<expr_t> prog = parse_single_expr(tok, ref);
 
         vector<shared_ptr<lmb_t>> nenv(ref.size());
         for (auto pair : ref) {
+            cerr << "gbl: " << pair.first << endl;
             assert(env.count(pair.first));
             nenv[pair.second] = env[pair.first];
         }
