@@ -194,11 +194,14 @@
 # (a -> IO b) -> [a] -> IO [b]
   define (
     \f \xs
-      (Y \run_ios \xs \_
+      (Y \run_ios \xs \ys \w
         if (emp? xs)
-          (\_ [])
-          (\_ : (run_io (head xs) _) (run_ios (tail xs) _)))
+          (\_ (pair (reverse ys) w))
+          (\_
+            define (run_io (head xs) w) \paw
+            run_ios (tail xs) (: (first paw) ys) (second paw)))
       (map f xs)
+      []
   ) \mapM
 
   define (. (mapM (\b if b (\_ putb_1) (\_ putb_0))) bin) \putc
