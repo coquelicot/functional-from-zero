@@ -1,0 +1,6 @@
+[package]
+name = "functional-from-zero"
+version = "0.1.0"
+authors = ["Peter Shih <peter50216@gmail.com>"]
+
+[dependencies]
