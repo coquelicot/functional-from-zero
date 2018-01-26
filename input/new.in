@@ -1,0 +1,131 @@
+# vim: set ts=2 sw=2 sts=2 :
+
+((\define
+
+  define (\x x) \id
+  define (\g \f \x g (f x)) \.
+  define (\f (\x x x) (\x \u f (x x) u)) \Y
+
+  define (\a \b \f f a b) \pair
+  define (\p p (\a \b a)) \first
+  define (\p p (\a \b b)) \second
+
+  define (\f id) \0
+  define (\n \f . f (n f)) \++
+  define (++ 0) \1
+
+  define (\n \m n ++ m) \+
+  define (\n \m . n m) \*
+  define (\n \m n m) \**
+
+  define (\n
+    (.
+      first
+      (n (\p pair (second p) (++ (second p)))))
+    (pair 0 0)
+  ) \--
+  define (\n \m m -- n) \-
+
+  define (\c \t \f c (\_ t) f .) \if
+  define (\c if c (\_ 0) (\_ 1)) \!
+  define (\a \b if a (\_ b) (\_ 0)) \&&
+  define (\a \b if a (\_ 1) (\_ b)) \||
+
+  define (\n \m - m n) \<
+  define (\n \m - n m) \>
+  define (\n \m ! (< n m)) \>=
+  define (\n \m ! (> n m)) \<=
+
+  define (
+    Y \/ \n \m
+      (if (< n m)
+        (\_ 0)
+        (\_ ++ (/ (- n m) m)))
+  ) \/
+  define (\n \m - n (* (/ n m) m)) \%
+
+  define (++ 1) \2
+  define (++ 2) \3
+  define (++ 3) \4
+  define (++ 4) \5
+  define (++ 5) \6
+  define (++ 6) \7
+  define (++ 7) \8
+  define (++ 8) \9
+
+  define (pair 1 0) \[]
+  define (\h \t pair 0 (pair h t)) \:
+  define (. first second) \head
+  define (. second second) \tail
+  define first \emp?
+
+  define (: 5 (: 1 (: 4 []))) \tmt
+  define (: 5 (: 0 (: 2 (: 1 (: 6 []))))) \peter
+
+  define (
+    Y \foldl \f \acc \xs
+      if (emp? xs)
+        (\_ acc)
+        (\_ foldl f (f acc (head xs)) (tail xs))
+  ) \foldl
+  define (
+    Y \foldr \f \acc \xs
+      if (emp? xs)
+        (\_ acc)
+        (\_ f (head xs) (foldr f acc (tail xs)))
+  ) \foldr
+
+  define (\f foldr (\x \acc : (f x) acc) []) \map
+  define (\xs \ys foldr : ys xs) \+++
+
+  define (
+    (Y \bin8 \n \xs \c
+      if n
+        (\_ bin8 (-- n) (: (% c 2) xs) (/ c 2))
+        (\_ xs)
+    ) 8 []
+  ) \bin
+
+  define (* 6 8) \'0'
+  define (++ '0') \'1'
+  define (++ '1') \'2'
+  define (++ '2') \'3'
+  define (++ '3') \'4'
+  define (++ '4') \'5'
+  define (++ '5') \'6'
+  define (++ '6') \'7'
+  define (++ '7') \'8'
+  define (++ '8') \'9'
+  define (++ 9) \endl
+
+  define (pair 1 (: p0 [])) \mp0
+  define (pair 1 (: p1 [])) \mp1
+  define (pair 1 []) \noio
+  define (\p1 \p2 pair 1 (+++ (second p1) (second p2))) \>>
+
+  define (pair 0 0) \end
+  define (
+    (Y \do \xs \p
+      if (first p)
+        (\_ do (+++ xs (second p)))
+        (\_ pair 1 xs))
+    []
+  ) \do
+  define (\f \xs foldr >> noio (map f xs)) \mapM
+
+  define (. (mapM (\b if b (\_ mp1) (\_ mp0))) bin) \putc
+  define (\xs >> (mapM putc xs) (putc endl)) \puts
+
+  (.
+    (Y \exec \xs
+      if (emp? xs)
+        (\_ .)
+        (\_ pair (head xs .) (exec (tail xs))))
+    second
+  )
+
+  (
+    puts (map (+ '0') peter)
+  )
+
+) (\v \f f v))
