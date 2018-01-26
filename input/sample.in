@@ -1,0 +1,196 @@
+(\id
+(\.
+(\Y
+
+(\pair
+(\first
+(\second
+
+(\0
+(\++
+(\1
+(\+
+(\*
+(\**
+(\--
+(\-
+
+(\if
+(\!
+(\&&
+(\||
+
+(\<
+(\>
+(\>=
+(\<=
+
+(\2
+(\3
+(\4
+(\5
+(\6
+(\7
+(\8
+(\9
+
+(\/
+(\%
+
+(\[]
+(\:
+(\head
+(\tail
+(\emp?
+(\tmt
+(\peter
+
+(\foldl
+(\foldr
+(\map
+(\+++
+
+(\mp0
+(\mp1
+(\return
+(\>>=
+(\end
+(\do
+(\mapM
+
+(
+(. (Y \exec \xs
+    (if (emp? xs)
+        \_ .
+        \_ (pair
+            ((head xs) .)
+            (exec (tail xs)))))
+    second)
+
+
+######
+
+(\'0'
+(\'1'
+(\'2'
+(\'3'
+(\'4'
+(\'5'
+(\'6'
+(\'7'
+(\'8'
+(\'9'
+(\endl
+(\EOS
+(\new-string
+
+(\putchar
+(\print
+    
+    (mapM putchar (map (+ '0') tmt))
+
+\n ((. p1 (n p0)) 0))
+\c
+    ((Y \f \p \c
+        (if p
+            \_ (>>=
+                (f (-- p) (/ c 2))
+                (if (% c 2)
+                    \_ mp1
+                    \_ mp0))
+            \_ return))
+    8 c))
+
+((Y \new-string \xs \x
+    (if x
+        \_ (new-string [])
+    []))))
+0)
+(++ 9))
+(++ '8'))
+(++ '7'))
+(++ '6'))
+(++ '5'))
+(++ '4'))
+(++ '3'))
+(++ '2'))
+(++ '1'))
+(++ '0'))
+(* 6 8))
+
+######
+
+)
+
+\f \xs (foldl >>= return (map f xs)))
+((Y \do \xs \p
+    (if (first p)
+        \_ (do (+++ xs (second p)))
+        \_ (pair 1 xs)))
+    []))
+(pair 0 0))
+\p1 \p2 (pair 1 (+++ (second p1) (second p2))))
+(pair 1 []))
+(pair 1 (: p1 [])))
+(pair 1 (: p0 [])))
+
+\xs \ys (foldr : ys xs))
+\f (foldr \x \acc (: (f x) acc) []))
+(Y \foldr \f \acc \xs
+    (if (emp? xs)
+        \_ acc
+        \_ (f (head xs) (foldr f acc (tail xs))))))
+(Y \foldl \f \acc \xs
+    (if (emp? xs)
+        \_ acc
+        \_ (foldl f (f acc (head xs)) (tail xs)))))
+
+(: 5 (: 0 (: 2 (: 1 (: 6 []))))))
+(: 5 (: 1 (: 4 []))))
+first)
+(. second second))
+(. first second))
+\h \t (pair 0 (pair h t)))
+(pair 1 0))
+
+\n \m (- n (* (/ n m) m)))
+(Y \/ \n \m
+    (if (< n m)
+        \_ 0
+        \_ (++ (/ (- n m) m)))))
+
+(++ 8))
+(++ 7))
+(++ 6))
+(++ 5))
+(++ 4))
+(++ 3))
+(++ 2))
+(++ 1))
+
+\n \m (! (> n m)))
+\n \m (! (< n m)))
+\n \m (- n m))
+\n \m (- m n))
+
+\a \b (if a \_ 1 \_ b))
+\a \b (if a \_ b \_ 0))
+\c (if c \_ 0 \_ 1))
+\c \t \f (c \_ t f 0))
+
+\n \m (m -- n))
+\n (first (n \p (pair (second p) (++ (second p))) (pair 0 0))))
+\n \e (e n))
+\a \b (. a b))
+\a \b (a ++ b))
+(++ 0))
+\n \f (. f (n f)))
+\f id)
+
+\p (p \a \b b))
+\p (p \a \b a))
+\a \b \f (f a b))
+
+\f (\x (x x) \x \u (f (x x) u)))
+\g \f \x (g (f x)))
+\x x)
