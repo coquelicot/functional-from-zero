@@ -16,7 +16,7 @@
 
   define (\n \m n ++ m) \+
   define (\n \m . n m) \*
-  define (\n \m n m) \**
+  define (\n \m m n) \**
 
   define (\n first (n (\p pair (second p) (++ (second p))) (pair 0 0))) \--
   define (\n \m m -- n) \-
@@ -30,6 +30,8 @@
   define (\n \m - n m) \>
   define (\n \m ! (< n m)) \>=
   define (\n \m ! (> n m)) \<=
+  define (\n \m || (< n m) (> n m)) \!=
+  define (\n \m ! (!= n m)) \==
 
   define (
     Y \/ \n \m
@@ -72,6 +74,7 @@
 
   define (\f foldr (\x \acc : (f x) acc) []) \map
   define (\xs \ys foldr : ys xs) \+++
+  define (foldl (\acc \x : x acc) []) \reverse
 
   define (
     (Y \bin8 \n \xs \c
@@ -80,6 +83,14 @@
         (\_ xs)
     ) 8 []
   ) \bin
+
+  define (
+    (Y \chr8 \n \v \xs
+      if n
+        (\_ chr8 (-- n) (+ (* v 2) (head xs)) (tail xs))
+        (\_ v)
+    ) 8 0
+  ) \chr
 
   define (* 6 8) \'0'
   define (++ '0') \'1'
@@ -91,7 +102,70 @@
   define (++ '6') \'7'
   define (++ '7') \'8'
   define (++ '8') \'9'
+  define (++ (* 8 8)) \'A'
+  define (++ 'A') \'B'
+  define (++ 'B') \'C'
+  define (++ 'C') \'D'
+  define (++ 'D') \'E'
+  define (++ 'E') \'F'
+  define (++ 'F') \'G'
+  define (++ 'G') \'H'
+  define (++ 'H') \'I'
+  define (++ 'I') \'J'
+  define (++ 'J') \'K'
+  define (++ 'K') \'L'
+  define (++ 'L') \'M'
+  define (++ 'M') \'N'
+  define (++ 'N') \'O'
+  define (++ 'O') \'P'
+  define (++ 'P') \'Q'
+  define (++ 'Q') \'R'
+  define (++ 'R') \'S'
+  define (++ 'S') \'T'
+  define (++ 'T') \'U'
+  define (++ 'U') \'V'
+  define (++ 'V') \'W'
+  define (++ 'W') \'X'
+  define (++ 'X') \'Y'
+  define (++ 'Y') \'Z'
+  define (+ 'A' (** 2 5)) \'a'
+  define (++ 'a') \'b'
+  define (++ 'b') \'c'
+  define (++ 'c') \'d'
+  define (++ 'd') \'e'
+  define (++ 'e') \'f'
+  define (++ 'f') \'g'
+  define (++ 'g') \'h'
+  define (++ 'h') \'i'
+  define (++ 'i') \'j'
+  define (++ 'j') \'k'
+  define (++ 'k') \'l'
+  define (++ 'l') \'m'
+  define (++ 'm') \'n'
+  define (++ 'n') \'o'
+  define (++ 'o') \'p'
+  define (++ 'p') \'q'
+  define (++ 'q') \'r'
+  define (++ 'r') \'s'
+  define (++ 's') \'t'
+  define (++ 't') \'u'
+  define (++ 'u') \'v'
+  define (++ 'v') \'w'
+  define (++ 'w') \'x'
+  define (++ 'x') \'y'
+  define (++ 'y') \'z'
+
+  define 0 \eos
   define (++ 9) \endl
+  define (** 2 5) \space
+
+  define (
+    (Y \build \xs \x
+      if x
+        (\_ build (: x xs))
+        (\_ reverse xs))
+    []
+  ) \string
 
 # IO a = w -> (a, w)
   define (\w ++ w) \next_w
@@ -109,9 +183,11 @@
 # a -> IO a  (a -> w -> (a, w))
   define pair \return
 # IO ()
-  define (\w pair (p0 w) (next_w w)) \mp0
+  define (\w pair (__builtin_p0 w) (next_w w)) \putb_0
 # IO ()
-  define (\w pair (p1 w) (next_w w)) \mp1
+  define (\w pair (__builtin_p1 w) (next_w w)) \putb_1
+# IO bool
+  define (\w pair (__builtin_g 0 1) (next_w w)) \getb
 # IO ()
   define (\w pair . w) \noio
 
@@ -125,20 +201,29 @@
       (map f xs)
   ) \mapM
 
-  define (. (mapM (\b if b (\_ mp1) (\_ mp0))) bin) \putc
+  define (. (mapM (\b if b (\_ putb_1) (\_ putb_0))) bin) \putc
   define (\xs >> (mapM putc xs) (putc endl)) \puts
+
+  define (
+    >>= getb \b0 >>= getb \b1 >>= getb \b2 >>= getb \b3
+    >>= getb \b4 >>= getb \b5 >>= getb \b6 >>= getb \b7
+    return (chr (: b0 (: b1 (: b2 (: b3 (: b4 (: b5 (: b6 (: b7 [])))))))))
+  ) \getc
 
   run_io (
 
-    >>=
-      (puts (map (+ '0') peter))
-    \_ >>=
-      (puts (map (+ '0') tmt))
-    \_ >>=
-      (puts (map (+ '0') peter))
-    \_ >>=
-      (puts (map (+ '0') tmt))
-    \_ noio
+    >>= (
+      puts (string
+        'H' 'e' 'l' 'l' 'o' space 'W' 'o' 'r' 'l' 'd' endl
+        'P' 'l' 'e' 'a' 's' 'e' space 'i' 'n' 'p' 'u' 't' space '0' space 'o' 'r' space '1'
+      eos)
+    ) \_ >>= (
+      getc
+    ) \sel >>= (
+      if (!= sel '0')
+        (\_ puts (map (+ '0') tmt))
+        (\_ puts (map (+ '0') peter))
+    ) \_ noio
 
   ) 0
 

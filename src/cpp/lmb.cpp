@@ -1,11 +1,10 @@
-#include <deque>
+#include <fstream>
 #include <sstream>
 #include <iostream>
+#include <deque>
 #include <vector>
 #include <map>
-#include <set>
 #include <memory>
-#include <algorithm>
 #include <cctype>
 #include <cassert>
 
@@ -167,19 +166,19 @@ struct parser_t {
     shared_ptr<expr_t> parse_single_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
 
         string token = tok.pop();
-        cerr << indent(depth) << "tok: " << token << endl;
+        //cerr << indent(depth) << "tok: " << token << endl;
 
         assert(token != "");
 
         if (token == "(") {
-            cerr << indent(depth) << "<<app" << endl;
+            //cerr << indent(depth) << "<<app" << endl;
             auto retv = parse_expr(tok, ref, depth+1);
-            cerr << indent(depth) << "app>>" << endl;
+            //cerr << indent(depth) << "app>>" << endl;
             tok.pop();
             return retv;
         }
         if (token != "\\") {
-            cerr << indent(depth) << "ref: " << token << endl;
+            //cerr << indent(depth) << "ref: " << token << endl;
             if (!ref.count(token))
                 ref.insert(make_pair(token, ref.size()));
             return make_shared<ref_expr_t>(ref[token]);
@@ -189,10 +188,10 @@ struct parser_t {
 
         map<string, int> nref;
         string arg = tok.pop();
-        cerr << indent(depth) << "def: " << arg << endl;
-        cerr << indent(depth) << "<<lmb" << endl;
+        //cerr << indent(depth) << "def: " << arg << endl;
+        //cerr << indent(depth) << "<<lmb" << endl;
         shared_ptr<expr_t> body = parse_expr(tok, nref, depth+1);
-        cerr << indent(depth) << "lmb>>" << endl;
+        //cerr << indent(depth) << "lmb>>" << endl;
 
         vector<int> arg_map(nref.size());
         for (auto pair : nref) {
@@ -201,7 +200,7 @@ struct parser_t {
             } else {
                 if (!ref.count(pair.first))
                     ref.insert(make_pair(pair.first, ref.size()));
-                cerr << indent(depth) << "cap: " << pair.first << endl;
+                //cerr << indent(depth) << "cap: " << pair.first << endl;
                 arg_map[pair.second] = ref[pair.first];
             }
         }
@@ -212,14 +211,14 @@ struct parser_t {
 
     shared_ptr<expr_t> parse_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
 
-        cerr << indent(depth) << "<<func" << endl;
+        //cerr << indent(depth) << "<<func" << endl;
         shared_ptr<expr_t> func = parse_single_expr(tok, ref, depth+1);
-        cerr << indent(depth) << "func>>" << endl;
+        //cerr << indent(depth) << "func>>" << endl;
         vector<shared_ptr<expr_t>> args;
         while (tok.peak() != ")" && tok.peak() != "") {
-            cerr << indent(depth) << "<<arg" << endl;
+            //cerr << indent(depth) << "<<arg" << endl;
             args.push_back(parse_single_expr(tok, ref, depth+1));
-            cerr << indent(depth) << "arg>>" << endl;
+            //cerr << indent(depth) << "arg>>" << endl;
         }
 
         return make_shared<apply_expr_t>(func, args);
@@ -235,7 +234,7 @@ struct parser_t {
 
         vector<shared_ptr<lmb_t>> nenv(ref.size());
         for (auto pair : ref) {
-            cerr << "gbl: " << pair.first << endl;
+            //cerr << "gbl: " << pair.first << endl;
             assert(env.count(pair.first));
             nenv[pair.second] = env[pair.first];
         }
@@ -245,7 +244,7 @@ struct parser_t {
     }
 };
 
-void shift(int bit) {
+void output(int bit) {
 
     static int pos = 7;
     static int val = 0;
@@ -258,28 +257,65 @@ void shift(int bit) {
     }
 }
 
+int input() {
+
+    // FIXME: how about eof?
+
+    static int pos = -1;
+    static int val = 0;
+
+    if (pos < 0) {
+        pos = 7;
+        val = cin.get();
+        //cerr << "input: " << val << endl;
+    }
+
+    return (val >> pos--) & 1;
+}
+
 struct put0_lmb_t : public lmb_t {
     virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg) {
-        shift(0);
+        output(0);
         return nullptr;
     }
 };
 
 struct put1_lmb_t : public lmb_t {
     virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg) {
-        shift(1);
+        output(1);
         return nullptr;
     }
 };
 
-int main() {
+struct get_x_lmb_t : public lmb_t {
 
-    tokenizer_t toks(cin);
+    shared_ptr<lmb_t> arg0;
+
+    get_x_lmb_t(shared_ptr<lmb_t> _arg0) : arg0(_arg0) {}
+
+    virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg1) {
+        return input() ? arg1 : arg0;
+    }
+};
+
+struct get_lmb_t : public lmb_t {
+    virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg0) {
+        return make_shared<get_x_lmb_t>(arg0);
+    }
+};
+
+int main(int argc, char *args[]) {
+
+    assert(argc > 1);
+    fstream fin(args[1]);
+
+    tokenizer_t toks(fin);
     parser_t parser;
 
     map<string, shared_ptr<lmb_t>> env;
-    env["p0"] = make_shared<put0_lmb_t>();
-    env["p1"] = make_shared<put1_lmb_t>();
+    env["__builtin_p0"] = make_shared<put0_lmb_t>();
+    env["__builtin_p1"] = make_shared<put1_lmb_t>();
+    env["__builtin_g"] = make_shared<get_lmb_t>();
 
     while (parser.run_once(toks, env));
 }
