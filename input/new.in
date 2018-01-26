@@ -18,12 +18,7 @@
   define (\n \m . n m) \*
   define (\n \m n m) \**
 
-  define (\n
-    (.
-      first
-      (n (\p pair (second p) (++ (second p)))))
-    (pair 0 0)
-  ) \--
+  define (\n first (n (\p pair (second p) (++ (second p))) (pair 0 0))) \--
   define (\n \m m -- n) \-
 
   define (\c \t \f c (\_ t) f .) \if
