@@ -1,196 +1,348 @@
-(\id
-(\.
-(\Y
+# vim: set ts=2 sw=2 sts=2 :
 
-(\pair
-(\first
-(\second
+# prog ::=
+#   term
+# term ::=
+#   id
+#   '\' id expr
+#   '(' expr ')'
+# expr ::=
+#   term
+#   term expr
 
-(\0
-(\++
-(\1
-(\+
-(\*
-(\**
-(\--
-(\-
+((\prog prog (\v \f f v)) \define
 
-(\if
-(\!
-(\&&
-(\||
+  define (\x x) \id
+  define (\g \f \x g (f x)) \.
+  define (\f (\x x x) (\x \u f (x x) u)) \Y
 
-(\<
-(\>
-(\>=
-(\<=
+  define (\a \b \f f a b) \pair
+  define (\p p (\a \b a)) \first
+  define (\p p (\a \b b)) \second
 
-(\2
-(\3
-(\4
-(\5
-(\6
-(\7
-(\8
-(\9
+  define (\f id) \0
+  define (\n \f . f (n f)) \++
+  define (++ 0) \1
 
-(\/
-(\%
+  define (\n \m m ++ n) \+
+  define (\n \m m (+ n) 0) \*
+  define (\n \m m (* n) 1) \**
 
-(\[]
-(\:
-(\head
-(\tail
-(\emp?
-(\tmt
-(\peter
+  define (\n first (n (\p pair (second p) (++ (second p))) (pair 0 0))) \--
+  define (\n \m m -- n) \-
 
-(\foldl
-(\foldr
-(\map
-(\+++
+  define (\c \t \f c (\_ t) f .) \if
+  define (\c if c (\_ 0) (\_ 1)) \!
+  define (\a \b if a (\_ b) (\_ 0)) \&&
+  define (\a \b if a (\_ 1) (\_ b)) \||
 
-(\mp0
-(\mp1
-(\return
-(\>>=
-(\end
-(\do
-(\mapM
+  define (\n \m - m n) \<
+  define (\n \m - n m) \>
+  define (\n \m ! (< n m)) \>=
+  define (\n \m ! (> n m)) \<=
+  define (\n \m || (< n m) (> n m)) \!=
+  define (\n \m ! (!= n m)) \==
 
-(
-(. (Y \exec \xs
-    (if (emp? xs)
-        \_ .
-        \_ (pair
-            ((head xs) .)
-            (exec (tail xs)))))
-    second)
+  define (
+    Y \/ \n \m
+      (if (< n m)
+        (\_ 0)
+        (\_ ++ (/ (- n m) m)))
+  ) \/
+  define (\n \m - n (* (/ n m) m)) \%
 
+  define (++ 1) \2
+  define (++ 2) \3
+  define (++ 3) \4
+  define (++ 4) \5
+  define (++ 5) \6
+  define (++ 6) \7
+  define (++ 7) \8
+  define (++ 8) \9
+  define (++ 9) \10
 
-######
+  define (pair 1 0) \[]
+  define (\h \t pair 0 (pair h t)) \:
+  define (. first second) \head
+  define (. second second) \tail
+  define first \emp?
 
-(\'0'
-(\'1'
-(\'2'
-(\'3'
-(\'4'
-(\'5'
-(\'6'
-(\'7'
-(\'8'
-(\'9'
-(\endl
-(\EOS
-(\new-string
+  define (
+    Y \foldl \f \acc \xs
+      if (emp? xs)
+        (\_ acc)
+        (\_ foldl f (f acc (head xs)) (tail xs))
+  ) \foldl
+  define (
+    Y \foldr \f \acc \xs
+      if (emp? xs)
+        (\_ acc)
+        (\_ f (head xs) (foldr f acc (tail xs)))
+  ) \foldr
+  define (
+    Y \take \n \xs
+      if (|| (! n) (emp? xs))
+        (\_ [])
+        (\_ : (head xs) (take (-- n) (tail xs)))
+  ) \take
+  define (
+    Y \skip \n \xs
+      if (|| (! n) (emp? xs))
+        (\_ xs)
+        (\_ skip (-- n) (tail xs))
+  ) \skip
 
-(\putchar
-(\print
-    
-    (mapM putchar (map (+ '0') tmt))
+  define (\xs \ys foldr : ys xs) \+++
+  define (foldl (\acc \x : x acc) []) \reverse
+  define (foldl (\v \x: ++ v) 0) \length
+  define (foldr +++ []) \flatten
 
-\n ((. p1 (n p0)) 0))
-\c
-    ((Y \f \p \c
-        (if p
-            \_ (>>=
-                (f (-- p) (/ c 2))
-                (if (% c 2)
-                    \_ mp1
-                    \_ mp0))
-            \_ return))
-    8 c))
+  define (
+    Y \gen \f \acc
+      define (f acc) \p
+      \u (if (first p)
+        (\_ : (second (second p)) (gen f (first (second p))))
+        (\_ [])) u
+  ) \gen
+  define (\acc \v pair 1 (pair acc v)) \yield
+  define (pair 0 0) \done
 
-((Y \new-string \xs \x
-    (if x
-        \_ (new-string [])
-    []))))
-0)
-(++ 9))
-(++ '8'))
-(++ '7'))
-(++ '6'))
-(++ '5'))
-(++ '4'))
-(++ '3'))
-(++ '2'))
-(++ '1'))
-(++ '0'))
-(* 6 8))
+  define (gen (\v yield (++ v) v) 0) \N
+  define (\a \b (take (- b a) (skip a N))) \range
 
-######
+  define (
+    \f gen \xs
+      if (emp? xs)
+        (\_ done)
+        (\_ yield (tail xs) (f (head xs)))
+  ) \map
 
+  define (
+    (Y \bin8 \n \xs \c
+      if n
+        (\_ bin8 (-- n) (: (% c 2) xs) (/ c 2))
+        (\_ xs)
+    ) 8 []
+  ) \bin
+  define (foldl (\c \b (+ (* c 2) b)) 0) \chr
+
+  define (** 2 5) \space
+  define (++ space) \'!'
+  define (++ '!') \'"'
+  define (++ '"') \'#'
+  define (++ '#') \'$'
+  define (++ '$') \'%'
+  define (++ '%') \'&'
+  define (++ '&') \quote
+  define (++ quote) \left_bracket
+  define (++ left_bracket) \right_bracket
+  define (++ right_bracket) \'*'
+  define (++ '*') \'+'
+  define (++ '+') \','
+  define (++ ',') \'-'
+  define (++ '-') \'.'
+  define (++ '.') \'/'
+  define (++ '/') \'0'
+  define (++ '0') \'1'
+  define (++ '1') \'2'
+  define (++ '2') \'3'
+  define (++ '3') \'4'
+  define (++ '4') \'5'
+  define (++ '5') \'6'
+  define (++ '6') \'7'
+  define (++ '7') \'8'
+  define (++ '8') \'9'
+  define (++ '9') \':'
+  define (++ ':') \';'
+  define (++ ';') \'<'
+  define (++ '<') \'='
+  define (++ '=') \'>'
+  define (++ '>') \'?'
+  define (++ '?') \'@'
+  define (++ '@') \'A'
+  define (++ 'A') \'B'
+  define (++ 'B') \'C'
+  define (++ 'C') \'D'
+  define (++ 'D') \'E'
+  define (++ 'E') \'F'
+  define (++ 'F') \'G'
+  define (++ 'G') \'H'
+  define (++ 'H') \'I'
+  define (++ 'I') \'J'
+  define (++ 'J') \'K'
+  define (++ 'K') \'L'
+  define (++ 'L') \'M'
+  define (++ 'M') \'N'
+  define (++ 'N') \'O'
+  define (++ 'O') \'P'
+  define (++ 'P') \'Q'
+  define (++ 'Q') \'R'
+  define (++ 'R') \'S'
+  define (++ 'S') \'T'
+  define (++ 'T') \'U'
+  define (++ 'U') \'V'
+  define (++ 'V') \'W'
+  define (++ 'W') \'X'
+  define (++ 'X') \'Y'
+  define (++ 'Y') \'Z'
+  define (++ 'Z') \'['
+  define (++ '[') \back_slash
+  define (++ back_slash) \']'
+  define (++ ']') \'^'
+  define (++ '^') \'_'
+  define (++ '_') \'`'
+  define (++ '`') \'a'
+  define (++ 'a') \'b'
+  define (++ 'b') \'c'
+  define (++ 'c') \'d'
+  define (++ 'd') \'e'
+  define (++ 'e') \'f'
+  define (++ 'f') \'g'
+  define (++ 'g') \'h'
+  define (++ 'h') \'i'
+  define (++ 'i') \'j'
+  define (++ 'j') \'k'
+  define (++ 'k') \'l'
+  define (++ 'l') \'m'
+  define (++ 'm') \'n'
+  define (++ 'n') \'o'
+  define (++ 'o') \'p'
+  define (++ 'p') \'q'
+  define (++ 'q') \'r'
+  define (++ 'r') \'s'
+  define (++ 's') \'t'
+  define (++ 't') \'u'
+  define (++ 'u') \'v'
+  define (++ 'v') \'w'
+  define (++ 'w') \'x'
+  define (++ 'x') \'y'
+  define (++ 'y') \'z'
+  define (++ 'z') \'{'
+  define (++ '{') \'|'
+  define (++ '|') \'}'
+  define (++ '}') \'~'
+  define 0 \eos
+# FIXME 255 as eof
+  define (-- (** 2 8)) \eof
+  define (++ 9) \endl
+
+  define (
+    (Y \build \xs \x
+      if x
+        (\_ build (: x xs))
+        (\_ reverse xs))
+    []
+  ) \string
+
+  define (
+    (Y \build \xs \x
+      if (first x)
+        (\_ build (: (second x) xs))
+        (\_ reverse xs))
+    []
+  ) \list
+  define (\x pair 1 x) \item
+  define (pair 0 0) \list-end
+
+  define (foldl (\v \c (+ (* 10 v) (- c '0'))) 0) \strtol
+  define (
+    (Y \_ltostr \s \n
+      if n
+        (\_ _ltostr (: (+ '0' (% n 10)) s) (/ n 10))
+        (\_ if (emp? s) (\_ : '0' []) (\_ s)))
+    []
+  ) \ltostr
+
+# IO a = w -> (a, w)
+  define (\w ++ w) \next_w
+# IO a -> w -> (a, w)
+  define (\io \w io w) \run_io
+# IO a -> (a -> IO b) -> IO b
+  define (
+    \io \f \w
+      define (run_io io w) \paw
+      define (f (first paw)) \iob
+      run_io iob (second paw)
+  ) \>>=
+# IO a -> IO b -> IO b
+  define (\a \b >>= a (\_ b)) \>>
+# a -> IO a  (a -> w -> (a, w))
+  define pair \return
+# IO ()
+  define (\w pair (__builtin_p0 w) (next_w w)) \putb_0
+# IO ()
+  define (\w pair (__builtin_p1 w) (next_w w)) \putb_1
+# IO bool
+  define (
+    define (__builtin_g 0 1) \_getb
+    \w pair (_getb w) (next_w w)
+  ) \getb
+# IO ()
+  define (\w pair . w) \noio
+
+# (a -> IO b) -> [a] -> IO [b]
+  define (
+    \f \xs
+      foldr
+        (\io \acc
+          >>= io \x
+          >>= acc \xs
+          return (: x xs))
+        (return [])
+        (map f xs)
+  ) \mapM
+
+  (\mkio run_io (mkio 0) 0) \_
+
+##### In Monad
+
+  define (. (mapM (\b if b (\_ putb_1) (\_ putb_0))) bin) \putc
+  define (\xs >> (mapM putc xs) (putc endl)) \puts
+
+  define (>>= (mapM (\_ getb) (range 0 8)) (. return chr)) \getc
+  define (
+    Y \gets
+      >>= getc \c
+      if (|| (== endl c) (== eof c))
+        (\_ return [])
+        (\_ >>= gets \s return (: c s))
+  ) \gets
+
+  define (
+    \prompt
+      >>= (puts prompt) \_
+      >>= (putc '>') \_
+      >>= (putc space) \_
+      gets
+  ) \input
+
+  define (
+    define (
+      Y \fib \n
+        if (<= n 1)
+          (\_ 1)
+          (\_ (+ (fib (- n 1)) (fib (- n 2))))
+    ) \fib
+    Y \loop
+      >>= (
+        input (string 'P' 'l' 'e' 'a' 's' 'e' space 'i' 'n' 'p' 'u' 't' space 'a' space 'n' 'u' 'm' 'b' 'e' 'r' eos)
+      ) \str
+        if (== 0 (length str))
+          (\_ noio)
+          (\_
+            >>= (
+              (. puts flatten)
+                (list
+                  (item (string 'f' 'i' 'b' left_bracket eos))
+                  (item str)
+                  (item (string right_bracket space '=' space eos))
+                  (item (ltostr (fib (strtol str))))
+                  list-end)
+            ) \_
+              loop)
+  ) \task-fib
+
+  task-fib
+
+##### END
 )
-
-\f \xs (foldl >>= return (map f xs)))
-((Y \do \xs \p
-    (if (first p)
-        \_ (do (+++ xs (second p)))
-        \_ (pair 1 xs)))
-    []))
-(pair 0 0))
-\p1 \p2 (pair 1 (+++ (second p1) (second p2))))
-(pair 1 []))
-(pair 1 (: p1 [])))
-(pair 1 (: p0 [])))
-
-\xs \ys (foldr : ys xs))
-\f (foldr \x \acc (: (f x) acc) []))
-(Y \foldr \f \acc \xs
-    (if (emp? xs)
-        \_ acc
-        \_ (f (head xs) (foldr f acc (tail xs))))))
-(Y \foldl \f \acc \xs
-    (if (emp? xs)
-        \_ acc
-        \_ (foldl f (f acc (head xs)) (tail xs)))))
-
-(: 5 (: 0 (: 2 (: 1 (: 6 []))))))
-(: 5 (: 1 (: 4 []))))
-first)
-(. second second))
-(. first second))
-\h \t (pair 0 (pair h t)))
-(pair 1 0))
-
-\n \m (- n (* (/ n m) m)))
-(Y \/ \n \m
-    (if (< n m)
-        \_ 0
-        \_ (++ (/ (- n m) m)))))
-
-(++ 8))
-(++ 7))
-(++ 6))
-(++ 5))
-(++ 4))
-(++ 3))
-(++ 2))
-(++ 1))
-
-\n \m (! (> n m)))
-\n \m (! (< n m)))
-\n \m (- n m))
-\n \m (- m n))
-
-\a \b (if a \_ 1 \_ b))
-\a \b (if a \_ b \_ 0))
-\c (if c \_ 0 \_ 1))
-\c \t \f (c \_ t f 0))
-
-\n \m (m -- n))
-\n (first (n \p (pair (second p) (++ (second p))) (pair 0 0))))
-\n \e (e n))
-\a \b (. a b))
-\a \b (a ++ b))
-(++ 0))
-\n \f (. f (n f)))
-\f id)
-
-\p (p \a \b b))
-\p (p \a \b a))
-\a \b \f (f a b))
-
-\f (\x (x x) \x \u (f (x x) u)))
-\g \f \x (g (f x)))
-\x x)
