@@ -5,9 +5,11 @@
 #include <vector>
 #include <map>
 #include <memory>
+#include <utility>
+#include <tuple>
+#include <functional>
 #include <cctype>
 #include <cassert>
-#include <functional>
 
 using namespace std;
 
@@ -70,26 +72,19 @@ struct lmb_expr_t : public expr_t {
 struct apply_expr_t : public expr_t {
 
     shared_ptr<expr_t> func;
-    vector<shared_ptr<expr_t>> args;
+    shared_ptr<expr_t> arg;
     static map<pair<shared_ptr<lmb_t>, shared_ptr<lmb_t>>, shared_ptr<lmb_t>> rec_map;
 
-    apply_expr_t(shared_ptr<expr_t> &_func, vector<shared_ptr<expr_t>> &_args) :
-        func(_func), args(_args) {}
+    apply_expr_t(const shared_ptr<expr_t> &_func, const shared_ptr<expr_t> &_arg) :
+        func(_func), arg(_arg) {}
 
     virtual shared_ptr<lmb_t> eval(const shadow_env_t &env) {
-        shared_ptr<lmb_t> lmb = func->eval(env);
-        for (auto arg : args) {
-            assert(lmb.get());
-            lmb = apply(lmb, arg->eval(env));
-        }
-        return lmb;
+        return apply(func->eval(env), arg->eval(env));
     }
 
     shared_ptr<lmb_t> apply(shared_ptr<lmb_t> func, shared_ptr<lmb_t> arg) {
-
         auto key = make_pair(func, arg);
         auto it = rec_map.find(key);
-
         if (it != rec_map.end())
             return it->second;
         else
@@ -186,6 +181,10 @@ struct tokenizer_t {
 
 struct parser_t {
 
+    map<tuple<int>, shared_ptr<ref_expr_t>> cache_ref;
+    map<tuple<int, vector<int>, shared_ptr<expr_t>>, shared_ptr<lmb_expr_t>> cache_lmb;
+    map<tuple<shared_ptr<expr_t>, shared_ptr<expr_t>>, shared_ptr<apply_expr_t>> cache_apply;
+
     parser_t() {}
 
     string indent(int depth) {
@@ -210,7 +209,12 @@ struct parser_t {
             //cerr << indent(depth) << "ref: " << token << endl;
             if (!ref.count(token))
                 ref.insert(make_pair(token, ref.size()));
-            return make_shared<ref_expr_t>(ref[token]);
+            auto key = make_tuple(ref[token]);
+            auto it = cache_ref.find(key);
+            if (it != cache_ref.end())
+                return it->second;
+            else
+                return cache_ref[key] = make_shared<ref_expr_t>(ref[token]);
         }
 
         // lambda
@@ -235,7 +239,12 @@ struct parser_t {
         }
 
         int idx = nref.count(arg) ? nref[arg] : -1;
-        return make_shared<lmb_expr_t>(idx, arg_map, body);
+        auto key = make_tuple(idx, arg_map, body);
+        auto it = cache_lmb.find(key);
+        if (it != cache_lmb.end())
+            return it->second;
+        else
+            return cache_lmb[key] = make_shared<lmb_expr_t>(idx, arg_map, body);
     }
 
     shared_ptr<expr_t> parse_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
@@ -243,14 +252,19 @@ struct parser_t {
         //cerr << indent(depth) << "<<func" << endl;
         shared_ptr<expr_t> func = parse_single_expr(tok, ref, depth+1);
         //cerr << indent(depth) << "func>>" << endl;
-        vector<shared_ptr<expr_t>> args;
         while (tok.peak() != ")" && tok.peak() != "") {
             //cerr << indent(depth) << "<<arg" << endl;
-            args.push_back(parse_single_expr(tok, ref, depth+1));
+            auto arg = parse_single_expr(tok, ref, depth+1);
+            auto key = make_tuple(func, arg);
+            auto it = cache_apply.find(key);
+            if (it != cache_apply.end()) {
+                func = it->second;
+            } else
+                func = cache_apply[key] = make_shared<apply_expr_t>(func, arg);
             //cerr << indent(depth) << "arg>>" << endl;
         }
 
-        return make_shared<apply_expr_t>(func, args);
+        return func;
     }
 
     bool run_once(tokenizer_t &tok, map<string, shared_ptr<lmb_t>> &env) {
