@@ -57,6 +57,7 @@ struct apply_expr_t : public expr_t {
 
     shared_ptr<expr_t> func;
     vector<shared_ptr<expr_t>> args;
+    static map<pair<shared_ptr<lmb_t>, shared_ptr<lmb_t>>, shared_ptr<lmb_t>> rec_map;
 
     apply_expr_t(shared_ptr<expr_t> &_func, vector<shared_ptr<expr_t>> &_args) :
         func(_func), args(_args) {}
@@ -65,11 +66,27 @@ struct apply_expr_t : public expr_t {
         shared_ptr<lmb_t> lmb = func->eval(env);
         for (auto arg : args) {
             assert(lmb.get());
-            lmb = lmb->exec(arg->eval(env));
+            lmb = apply(lmb, arg->eval(env));
         }
         return lmb;
     }
+
+    shared_ptr<lmb_t> apply(shared_ptr<lmb_t> func, shared_ptr<lmb_t> arg) {
+
+        auto key = make_pair(func, arg);
+        auto it = rec_map.find(key);
+
+        if (it != rec_map.end())
+            return it->second;
+        else
+            return rec_map[key] = func->exec(arg);
+    }
+
+    static void clear_cache() {
+        rec_map.clear();
+    }
 };
+map<pair<shared_ptr<lmb_t>, shared_ptr<lmb_t>>, shared_ptr<lmb_t>> apply_expr_t::rec_map;
 
 struct ref_expr_t : public expr_t {
 
@@ -241,6 +258,7 @@ struct parser_t {
         }
 
         prog->eval(nenv);
+        apply_expr_t::clear_cache();
         return true;
     }
 };
