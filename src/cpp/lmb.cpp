@@ -12,26 +12,40 @@
 using namespace std;
 
 struct expr_t;
-struct lmb_expr_t;
 struct lmb_t {
     virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg) = 0;
     virtual ~lmb_t() {}
+};
+
+using env_t = vector<shared_ptr<lmb_t>>;
+struct shadow_env_t {
+
+    int shadow_idx;
+    shared_ptr<lmb_t> shadow_val;
+    env_t &orgi_env;
+
+    shadow_env_t(env_t &_orgi_env, int _shadow_idx=-1, shared_ptr<lmb_t> _shadow_val=nullptr)
+        : shadow_idx(_shadow_idx), shadow_val(_shadow_val), orgi_env(_orgi_env) {}
+
+    const shared_ptr<lmb_t>& operator[](int idx) const {
+        return idx == shadow_idx ? shadow_val : orgi_env[idx];
+    }
 };
 
 struct val_lmb_t : public lmb_t {
 
     int arg_idx;
     shared_ptr<expr_t> body;
-    vector<shared_ptr<lmb_t>> env;
+    env_t env;
 
-    val_lmb_t(int _arg_idx, shared_ptr<expr_t> &_body, vector<shared_ptr<lmb_t>> &_env) :
+    val_lmb_t(int _arg_idx, shared_ptr<expr_t> &_body, env_t &_env) :
         arg_idx(_arg_idx), body(_body), env(_env) {}
 
     virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg);
 };
 
 struct expr_t {
-    virtual shared_ptr<lmb_t> eval(const vector<shared_ptr<lmb_t>> &env) = 0;
+    virtual shared_ptr<lmb_t> eval(const shadow_env_t &env) = 0;
     virtual ~expr_t() {};
 };
 
@@ -44,8 +58,8 @@ struct lmb_expr_t : public expr_t {
     lmb_expr_t(int _arg_idx, vector<int> &_arg_map, shared_ptr<expr_t> &_body) :
         arg_idx(_arg_idx), arg_map(_arg_map), body(_body) {}
 
-    virtual shared_ptr<lmb_t> eval(const vector<shared_ptr<lmb_t>> &env) {
-        vector<shared_ptr<lmb_t>> nenv(arg_map.size());
+    virtual shared_ptr<lmb_t> eval(const shadow_env_t &env) {
+        env_t nenv(arg_map.size());
         for (int i = 0; i < (int)arg_map.size(); i++)
             if (arg_map[i] >= 0)
                 nenv[i] = env[arg_map[i]];
@@ -62,7 +76,7 @@ struct apply_expr_t : public expr_t {
     apply_expr_t(shared_ptr<expr_t> &_func, vector<shared_ptr<expr_t>> &_args) :
         func(_func), args(_args) {}
 
-    virtual shared_ptr<lmb_t> eval(const vector<shared_ptr<lmb_t>> &env) {
+    virtual shared_ptr<lmb_t> eval(const shadow_env_t &env) {
         shared_ptr<lmb_t> lmb = func->eval(env);
         for (auto arg : args) {
             assert(lmb.get());
@@ -94,16 +108,13 @@ struct ref_expr_t : public expr_t {
 
     ref_expr_t(int _ref_idx) : ref_idx(_ref_idx) {}
 
-    virtual shared_ptr<lmb_t> eval(const vector<shared_ptr<lmb_t>> &env) {
+    virtual shared_ptr<lmb_t> eval(const shadow_env_t &env) {
         return env[ref_idx];
     }
 };
 
 shared_ptr<lmb_t> val_lmb_t::exec(shared_ptr<lmb_t> arg) {
-    vector<shared_ptr<lmb_t>> nenv = env;
-    if (arg_idx >= 0)
-        nenv[arg_idx] = arg;
-    return body->eval(nenv);
+    return body->eval(shadow_env_t(env, arg_idx, arg));
 }
 
 struct tokenizer_t {
@@ -250,14 +261,14 @@ struct parser_t {
         map<string, int> ref;
         shared_ptr<expr_t> prog = parse_single_expr(tok, ref);
 
-        vector<shared_ptr<lmb_t>> nenv(ref.size());
+        env_t nenv(ref.size());
         for (auto pair : ref) {
             //cerr << "gbl: " << pair.first << endl;
             assert(env.count(pair.first));
             nenv[pair.second] = env[pair.first];
         }
 
-        prog->eval(nenv);
+        prog->eval(shadow_env_t(nenv));
         apply_expr_t::clear_cache();
         return true;
     }
@@ -294,7 +305,7 @@ int input() {
 
 struct native_lmb_t : public lmb_t {
 
-    using argv_t = vector<shared_ptr<lmb_t>>;
+    using argv_t = env_t;
     using func_t = function<shared_ptr<lmb_t>(argv_t&)>;
 
     size_t args;
