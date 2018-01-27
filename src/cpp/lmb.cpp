@@ -7,6 +7,7 @@
 #include <memory>
 #include <cctype>
 #include <cassert>
+#include <functional>
 
 using namespace std;
 
@@ -273,34 +274,27 @@ int input() {
     return (val >> pos--) & 1;
 }
 
-struct put0_lmb_t : public lmb_t {
+struct native_lmb_t : public lmb_t {
+
+    using argv_t = vector<shared_ptr<lmb_t>>;
+    using func_t = function<shared_ptr<lmb_t>(argv_t&)>;
+
+    size_t args;
+    argv_t argv;
+    func_t func;
+
+    native_lmb_t(size_t _args, func_t _func, argv_t _argv=argv_t()) :
+        args(_args), argv(_argv), func(_func) {}
+
     virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg) {
-        output(0);
-        return nullptr;
-    }
-};
-
-struct put1_lmb_t : public lmb_t {
-    virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg) {
-        output(1);
-        return nullptr;
-    }
-};
-
-struct get_x_lmb_t : public lmb_t {
-
-    shared_ptr<lmb_t> arg0;
-
-    get_x_lmb_t(shared_ptr<lmb_t> _arg0) : arg0(_arg0) {}
-
-    virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg1) {
-        return input() ? arg1 : arg0;
-    }
-};
-
-struct get_lmb_t : public lmb_t {
-    virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg0) {
-        return make_shared<get_x_lmb_t>(arg0);
+        if (argv.size() == args) {
+            // arg is the "world" arg
+            return func(argv);
+        } else {
+            argv_t nargv = argv;
+            nargv.push_back(arg);
+            return make_shared<native_lmb_t>(args, func, nargv);
+        }
     }
 };
 
@@ -313,9 +307,17 @@ int main(int argc, char *args[]) {
     parser_t parser;
 
     map<string, shared_ptr<lmb_t>> env;
-    env["__builtin_p0"] = make_shared<put0_lmb_t>();
-    env["__builtin_p1"] = make_shared<put1_lmb_t>();
-    env["__builtin_g"] = make_shared<get_lmb_t>();
+    env["__builtin_p0"] = make_shared<native_lmb_t>(0, [] (native_lmb_t::argv_t &argv) {
+        output(0);
+        return nullptr;
+    });
+    env["__builtin_p1"] = make_shared<native_lmb_t>(0, [] (native_lmb_t::argv_t &argv) {
+        output(1);
+        return nullptr;
+    });
+    env["__builtin_g"] = make_shared<native_lmb_t>(2, [] (native_lmb_t::argv_t &argv) {
+        return argv[input()];
+    });
 
     while (parser.run_once(toks, env));
 }

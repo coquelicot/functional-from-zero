@@ -187,22 +187,23 @@
 # IO ()
   define (\w pair (__builtin_p1 w) (next_w w)) \putb_1
 # IO bool
-  define (\w pair (__builtin_g 0 1) (next_w w)) \getb
+  define (
+    define (__builtin_g 0 1) \_getb
+    \w pair (_getb w) (next_w w)
+  ) \getb
 # IO ()
   define (\w pair . w) \noio
 
 # (a -> IO b) -> [a] -> IO [b]
   define (
-    \f \xs \w
-      define (
-        foldl
-          (\acc \io
-            define (run_io io (second acc)) \paw
-            pair (: (first paw) (first acc)) (second paw))
-          (pair [] w)
-          (map f xs)
-      ) \paw
-      pair (reverse (first paw)) (second paw)
+    \f \xs
+      foldr
+        (\io \acc
+          >>= io \x
+          >>= acc \xs
+          return (: x xs))
+        (return [])
+        (map f xs)
   ) \mapM
 
   define (. (mapM (\b if b (\_ putb_1) (\_ putb_0))) bin) \putc
