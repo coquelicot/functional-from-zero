@@ -95,6 +95,7 @@
   define (\xs \ys foldr : ys xs) \+++
   define (foldl (\acc \x : x acc) []) \reverse
   define (foldl (\v \x: ++ v) 0) \length
+  define (foldr +++ []) \flatten
 
   define (
     Y \gen \f \acc
@@ -233,6 +234,16 @@
     []
   ) \string
 
+  define (
+    (Y \build \xs \x
+      if (first x)
+        (\_ build (: (second x) xs))
+        (\_ reverse xs))
+    []
+  ) \list
+  define (\x pair 1 x) \item
+  define (pair 0 0) \list-end
+
   define (foldl (\v \c (+ (* 10 v) (- c '0'))) 0) \strtol
   define (
     (Y \_ltostr \s \n
@@ -281,8 +292,13 @@
         (map f xs)
   ) \mapM
 
+  (\mkio run_io (mkio 0) 0) \_
+
+##### In Monad
+
   define (. (mapM (\b if b (\_ putb_1) (\_ putb_0))) bin) \putc
   define (\xs >> (mapM putc xs) (putc endl)) \puts
+
   define (>>= (mapM (\_ getb) (range 0 8)) (. return chr)) \getc
   define (
     Y \gets
@@ -292,36 +308,41 @@
         (\_ >>= gets \s return (: c s))
   ) \gets
 
-  (\mkio run_io (mkio 0) 0) \_
-
-##### In Monad
+  define (
+    \prompt
+      >>= (puts prompt) \_
+      >>= (putc '>') \_
+      >>= (putc space) \_
+      gets
+  ) \input
 
   define (
+    define (
+      Y \fib \n
+        if (<= n 1)
+          (\_ 1)
+          (\_ (+ (fib (- n 1)) (fib (- n 2))))
+    ) \fib
     Y \loop
       >>= (
-        >>=
-          (puts (string 'P' 'l' 'e' 'a' 's' 'e' space 'i' 'n' 'p' 'u' 't' space 'a' space 'n' 'u' 'm' 'b' 'e' 'r' eos))
-        \_ >>=
-          (putc '>')
-        \_
-          (putc space)
-      ) \_
-      >>= gets \str
+        input (string 'P' 'l' 'e' 'a' 's' 'e' space 'i' 'n' 'p' 'u' 't' space 'a' space 'n' 'u' 'm' 'b' 'e' 'r' eos)
+      ) \str
         if (== 0 (length str))
           (\_ noio)
           (\_
             >>= (
-              puts (
-                +++
-                  str
-                  (+++
-                    (string space '*' space '2' space '=' space eos)
-                    (ltostr (* 2 (strtol str)))))
+              (. puts flatten)
+                (list
+                  (item (string 'f' 'i' 'b' left_bracket eos))
+                  (item str)
+                  (item (string right_bracket space '=' space eos))
+                  (item (ltostr (fib (strtol str))))
+                  list-end)
             ) \_
               loop)
-  ) \task-mul-2
+  ) \task-fib
 
-  task-mul-2
+  task-fib
 
 ##### END
 )
