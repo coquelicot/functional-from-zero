@@ -57,9 +57,6 @@
   define (. second second) \tail
   define first \emp?
 
-  define (: 5 (: 1 (: 4 []))) \tmt
-  define (: 5 (: 0 (: 2 (: 1 (: 6 []))))) \peter
-
   define (
     Y \foldl \f \acc \xs
       if (emp? xs)
@@ -76,6 +73,7 @@
   define (\f foldr (\x \acc : (f x) acc) []) \map
   define (\xs \ys foldr : ys xs) \+++
   define (foldl (\acc \x : x acc) []) \reverse
+  define (foldl (\v \x: ++ v) 0) \length
 
   define (
     (Y \bin8 \n \xs \c
@@ -189,6 +187,8 @@
   define (++ '|') \'}'
   define (++ '}') \'~'
   define 0 \eos
+# FIXME 255 as eof
+  define (-- (** 2 8)) \eof
   define (++ 9) \endl
 
   define (
@@ -259,7 +259,7 @@
   define (
     Y \gets
       >>= getc \c
-      if (== endl c)
+      if (|| (== endl c) (== eof c))
         (\_ return [])
         (\_ >>= gets \s return (: c s))
   ) \gets
@@ -276,16 +276,18 @@
           (putc space)
       ) \_
       >>= gets \str
-      >>= (
-        puts (
-          +++
-            str
-            (+++
-              (string space '*' space '2' space '=' space eos)
-              (ltostr (* 2 (strtol str))))
-        )
-      ) \_
-        loop
+        if (== 0 (length str))
+          (\_ noio)
+          (\_
+            >>= (
+              puts (
+                +++
+                  str
+                  (+++
+                    (string space '*' space '2' space '=' space eos)
+                    (ltostr (* 2 (strtol str)))))
+            ) \_
+              loop)
   ) 0
 
 ) (\v \f f v))
