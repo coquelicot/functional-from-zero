@@ -56,6 +56,7 @@ struct lmb_expr_t : public expr_t {
     int arg_idx;
     vector<int> arg_map;
     shared_ptr<expr_t> body;
+    static map<tuple<int, shared_ptr<expr_t>, env_t>, shared_ptr<lmb_t>> cache;
 
     lmb_expr_t(int _arg_idx, vector<int> &_arg_map, shared_ptr<expr_t> &_body) :
         arg_idx(_arg_idx), arg_map(_arg_map), body(_body) {}
@@ -65,15 +66,25 @@ struct lmb_expr_t : public expr_t {
         for (int i = 0; i < (int)arg_map.size(); i++)
             if (arg_map[i] >= 0)
                 nenv[i] = env[arg_map[i]];
-        return make_shared<val_lmb_t>(arg_idx, body, nenv);
+        auto key = make_tuple(arg_idx, body, nenv);
+        auto it = cache.find(key);
+        if (it != cache.end())
+            return it->second;
+        else
+            return cache[key] = make_shared<val_lmb_t>(arg_idx, body, nenv);
+    }
+
+    static void clear_cache() {
+        cache.clear();
     }
 };
+map<tuple<int, shared_ptr<expr_t>, env_t>, shared_ptr<lmb_t>> lmb_expr_t::cache;
 
 struct apply_expr_t : public expr_t {
 
     shared_ptr<expr_t> func;
     shared_ptr<expr_t> arg;
-    static map<pair<shared_ptr<lmb_t>, shared_ptr<lmb_t>>, shared_ptr<lmb_t>> rec_map;
+    static map<pair<shared_ptr<lmb_t>, shared_ptr<lmb_t>>, shared_ptr<lmb_t>> cache;
 
     apply_expr_t(const shared_ptr<expr_t> &_func, const shared_ptr<expr_t> &_arg) :
         func(_func), arg(_arg) {}
@@ -84,18 +95,18 @@ struct apply_expr_t : public expr_t {
 
     shared_ptr<lmb_t> apply(shared_ptr<lmb_t> func, shared_ptr<lmb_t> arg) {
         auto key = make_pair(func, arg);
-        auto it = rec_map.find(key);
-        if (it != rec_map.end())
+        auto it = cache.find(key);
+        if (it != cache.end())
             return it->second;
         else
-            return rec_map[key] = func->exec(arg);
+            return cache[key] = func->exec(arg);
     }
 
     static void clear_cache() {
-        rec_map.clear();
+        cache.clear();
     }
 };
-map<pair<shared_ptr<lmb_t>, shared_ptr<lmb_t>>, shared_ptr<lmb_t>> apply_expr_t::rec_map;
+map<pair<shared_ptr<lmb_t>, shared_ptr<lmb_t>>, shared_ptr<lmb_t>> apply_expr_t::cache;
 
 struct ref_expr_t : public expr_t {
 
@@ -284,6 +295,7 @@ struct parser_t {
 
         prog->eval(shadow_env_t(nenv));
         apply_expr_t::clear_cache();
+        lmb_expr_t::clear_cache();
         return true;
     }
 };
