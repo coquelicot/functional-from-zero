@@ -14,9 +14,9 @@
   define (\n \f . f (n f)) \++
   define (++ 0) \1
 
-  define (\n \m n ++ m) \+
-  define (\n \m . n m) \*
-  define (\n \m m n) \**
+  define (\n \m m ++ n) \+
+  define (\n \m m (+ n) 0) \*
+  define (\n \m m (* n) 1) \**
 
   define (\n first (n (\p pair (second p) (++ (second p))) (pair 0 0))) \--
   define (\n \m m -- n) \-
