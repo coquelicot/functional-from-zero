@@ -1,6 +1,16 @@
 # vim: set ts=2 sw=2 sts=2 :
 
-((\define
+# prog ::=
+#   term
+# term ::=
+#   id
+#   '\' id expr
+#   '(' expr ')'
+# expr ::=
+#   term
+#   term expr
+
+((\prog prog (\v \f f v)) \define
 
   define (\x x) \id
   define (\g \f \x g (f x)) \.
@@ -69,11 +79,42 @@
         (\_ acc)
         (\_ f (head xs) (foldr f acc (tail xs)))
   ) \foldr
+  define (
+    Y \take \n \xs
+      if (|| (! n) (emp? xs))
+        (\_ [])
+        (\_ : (head xs) (take (-- n) (tail xs)))
+  ) \take
+  define (
+    Y \skip \n \xs
+      if (|| (! n) (emp? xs))
+        (\_ xs)
+        (\_ skip (-- n) (tail xs))
+  ) \skip
 
-  define (\f foldr (\x \acc : (f x) acc) []) \map
   define (\xs \ys foldr : ys xs) \+++
   define (foldl (\acc \x : x acc) []) \reverse
   define (foldl (\v \x: ++ v) 0) \length
+
+  define (
+    Y \gen \f \acc
+      define (f acc) \p
+      \u (if (first p)
+        (\_ : (second (second p)) (gen f (first (second p))))
+        (\_ [])) u
+  ) \gen
+  define (\acc \v pair 1 (pair acc v)) \yield
+  define (pair 0 0) \done
+
+  define (gen (\v yield (++ v) v) 0) \N
+  define (\a \b (take (- b a) (skip a N))) \range
+
+  define (
+    \f gen \xs
+      if (emp? xs)
+        (\_ done)
+        (\_ yield (tail xs) (f (head xs)))
+  ) \map
 
   define (
     (Y \bin8 \n \xs \c
@@ -82,14 +123,7 @@
         (\_ xs)
     ) 8 []
   ) \bin
-
-  define (
-    (Y \chr8 \n \v \xs
-      if n
-        (\_ chr8 (-- n) (+ (* v 2) (head xs)) (tail xs))
-        (\_ v)
-    ) 8 0
-  ) \chr
+  define (foldl (\c \b (+ (* c 2) b)) 0) \chr
 
   define (** 2 5) \space
   define (++ space) \'!'
@@ -249,13 +283,7 @@
 
   define (. (mapM (\b if b (\_ putb_1) (\_ putb_0))) bin) \putc
   define (\xs >> (mapM putc xs) (putc endl)) \puts
-
-  define (
-    >>= getb \b0 >>= getb \b1 >>= getb \b2 >>= getb \b3
-    >>= getb \b4 >>= getb \b5 >>= getb \b6 >>= getb \b7
-    return (chr (: b0 (: b1 (: b2 (: b3 (: b4 (: b5 (: b6 (: b7 [])))))))))
-  ) \getc
-
+  define (>>= (mapM (\_ getb) (range 0 8)) (. return chr)) \getc
   define (
     Y \gets
       >>= getc \c
@@ -264,8 +292,11 @@
         (\_ >>= gets \s return (: c s))
   ) \gets
 
-  run_io (
+  (\mkio run_io (mkio 0) 0) \_
 
+##### In Monad
+
+  define (
     Y \loop
       >>= (
         >>=
@@ -288,6 +319,9 @@
                     (ltostr (* 2 (strtol str)))))
             ) \_
               loop)
-  ) 0
+  ) \task-mul-2
 
-) (\v \f f v))
+  task-mul-2
+
+##### END
+)
