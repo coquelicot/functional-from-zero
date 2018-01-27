@@ -49,6 +49,7 @@
   define (++ 6) \7
   define (++ 7) \8
   define (++ 8) \9
+  define (++ 9) \10
 
   define (pair 1 0) \[]
   define (\h \t pair 0 (pair h t)) \:
@@ -92,7 +93,23 @@
     ) 8 0
   ) \chr
 
-  define (* 6 8) \'0'
+  define (** 2 5) \space
+  define (++ space) \'!'
+  define (++ '!') \'"'
+  define (++ '"') \'#'
+  define (++ '#') \'$'
+  define (++ '$') \'%'
+  define (++ '%') \'&'
+  define (++ '&') \quote
+  define (++ quote) \left_bracket
+  define (++ left_bracket) \right_bracket
+  define (++ right_bracket) \'*'
+  define (++ '*') \'+'
+  define (++ '+') \','
+  define (++ ',') \'-'
+  define (++ '-') \'.'
+  define (++ '.') \'/'
+  define (++ '/') \'0'
   define (++ '0') \'1'
   define (++ '1') \'2'
   define (++ '2') \'3'
@@ -102,7 +119,14 @@
   define (++ '6') \'7'
   define (++ '7') \'8'
   define (++ '8') \'9'
-  define (++ (* 8 8)) \'A'
+  define (++ '9') \':'
+  define (++ ':') \';'
+  define (++ ';') \'<'
+  define (++ '<') \'='
+  define (++ '=') \'>'
+  define (++ '>') \'?'
+  define (++ '?') \'@'
+  define (++ '@') \'A'
   define (++ 'A') \'B'
   define (++ 'B') \'C'
   define (++ 'C') \'D'
@@ -128,7 +152,13 @@
   define (++ 'W') \'X'
   define (++ 'X') \'Y'
   define (++ 'Y') \'Z'
-  define (+ 'A' (** 2 5)) \'a'
+  define (++ 'Z') \'['
+  define (++ '[') \back_slash
+  define (++ back_slash) \']'
+  define (++ ']') \'^'
+  define (++ '^') \'_'
+  define (++ '_') \'`'
+  define (++ '`') \'a'
   define (++ 'a') \'b'
   define (++ 'b') \'c'
   define (++ 'c') \'d'
@@ -154,10 +184,12 @@
   define (++ 'w') \'x'
   define (++ 'x') \'y'
   define (++ 'y') \'z'
-
+  define (++ 'z') \'{'
+  define (++ '{') \'|'
+  define (++ '|') \'}'
+  define (++ '}') \'~'
   define 0 \eos
   define (++ 9) \endl
-  define (** 2 5) \space
 
   define (
     (Y \build \xs \x
@@ -166,6 +198,15 @@
         (\_ reverse xs))
     []
   ) \string
+
+  define (foldl (\v \c (+ (* 10 v) (- c '0'))) 0) \strtol
+  define (
+    (Y \_ltostr \s \n
+      if n
+        (\_ _ltostr (: (+ '0' (% n 10)) s) (/ n 10))
+        (\_ if (emp? s) (\_ : '0' []) (\_ s)))
+    []
+  ) \ltostr
 
 # IO a = w -> (a, w)
   define (\w ++ w) \next_w
@@ -215,21 +256,36 @@
     return (chr (: b0 (: b1 (: b2 (: b3 (: b4 (: b5 (: b6 (: b7 [])))))))))
   ) \getc
 
+  define (
+    Y \gets
+      >>= getc \c
+      if (== endl c)
+        (\_ return [])
+        (\_ >>= gets \s return (: c s))
+  ) \gets
+
   run_io (
 
-    >>= (
-      puts (string
-        'H' 'e' 'l' 'l' 'o' space 'W' 'o' 'r' 'l' 'd' endl
-        'P' 'l' 'e' 'a' 's' 'e' space 'i' 'n' 'p' 'u' 't' space '0' space 'o' 'r' space '1'
-      eos)
-    ) \_ >>= (
-      getc
-    ) \sel >>= (
-      if (!= sel '0')
-        (\_ puts (map (+ '0') tmt))
-        (\_ puts (map (+ '0') peter))
-    ) \_ noio
-
+    Y \loop
+      >>= (
+        >>=
+          (puts (string 'P' 'l' 'e' 'a' 's' 'e' space 'i' 'n' 'p' 'u' 't' space 'a' space 'n' 'u' 'm' 'b' 'e' 'r' eos))
+        \_ >>=
+          (putc '>')
+        \_
+          (putc space)
+      ) \_
+      >>= gets \str
+      >>= (
+        puts (
+          +++
+            str
+            (+++
+              (string space '*' space '2' space '=' space eos)
+              (ltostr (* 2 (strtol str))))
+        )
+      ) \_
+        loop
   ) 0
 
 ) (\v \f f v))
