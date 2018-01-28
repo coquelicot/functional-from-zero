@@ -2,8 +2,7 @@ extern crate functional_from_zero;
 
 use std::io;
 
-use functional_from_zero::tokenizer;
-use functional_from_zero::lexer;
+use functional_from_zero::{tokenizer, parser, transformer};
 
 fn read_code_without_comment() -> String {
     let stdin = io::stdin();
@@ -23,7 +22,7 @@ fn main() {
     let code = read_code_without_comment();
     let tokens = tokenizer::tokenize(&code);
     println!("tokens = {:?}", tokens);
-    match lexer::parse(&tokens) {
+    match parser::parse(&tokens) {
         Ok(expression) => println!("expression = {:?}", expression),
         Err(error) => println!("Error when parsing expression: {}", error),
     }

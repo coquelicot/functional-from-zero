@@ -1,8 +1,6 @@
-use std::error;
-use std::fmt;
+use std::{error, fmt};
 
-use super::tokenizer::Token;
-use super::tokenizer::TokenType;
+use super::tokenizer::{Token, TokenType};
 
 #[derive(Debug)]
 pub enum Expression<'a> {
