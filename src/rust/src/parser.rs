@@ -3,10 +3,10 @@ use std::{error, fmt};
 use super::tokenizer::{Token, TokenType};
 
 #[derive(Debug)]
-pub enum Expression<'a> {
+pub enum Node<'a> {
     Identifier(&'a str),
-    Lambda(&'a str, Box<Expression<'a>>),
-    Apply(Box<Expression<'a>>, Box<Expression<'a>>),
+    Lambda(&'a str, Box<Node<'a>>),
+    Apply(Box<Node<'a>>, Box<Node<'a>>),
 }
 
 #[derive(Debug)]
@@ -39,10 +39,10 @@ impl fmt::Display for Error {
     }
 }
 
-fn parse_single<'a>(tokens: &'a [Token]) -> Result<(Box<Expression<'a>>, &'a [Token<'a>]), Error> {
+fn parse_single<'a>(tokens: &'a [Token]) -> Result<(Box<Node<'a>>, &'a [Token<'a>]), Error> {
     if let Some((token, tokens)) = tokens.split_first() {
         match token.token_type {
-            TokenType::Identifier(name) => Ok((Box::new(Expression::Identifier(name)), tokens)),
+            TokenType::Identifier(name) => Ok((Box::new(Node::Identifier(name)), tokens)),
             TokenType::LeftParen => {
                 let (expression, tokens) = parse_multi(tokens)?;
                 if let Some((right_paren, tokens)) = tokens.split_first() {
@@ -57,7 +57,7 @@ fn parse_single<'a>(tokens: &'a [Token]) -> Result<(Box<Expression<'a>>, &'a [To
                 if let Some((arg, tokens)) = tokens.split_first() {
                     if let TokenType::Identifier(name) = arg.token_type {
                         let (expression, tokens) = parse_multi(tokens)?;
-                        return Ok((Box::new(Expression::Lambda(name, expression)), tokens));
+                        return Ok((Box::new(Node::Lambda(name, expression)), tokens));
                     }
                 }
                 Err(Error::MissingLambdaArg)
@@ -68,7 +68,7 @@ fn parse_single<'a>(tokens: &'a [Token]) -> Result<(Box<Expression<'a>>, &'a [To
     }
 }
 
-fn parse_multi<'a>(tokens: &'a [Token]) -> Result<(Box<Expression<'a>>, &'a [Token<'a>]), Error> {
+fn parse_multi<'a>(tokens: &'a [Token]) -> Result<(Box<Node<'a>>, &'a [Token<'a>]), Error> {
     let (mut expression, mut tokens) = parse_single(tokens)?;
     loop {
         if let Some(next_token) = tokens.first() {
@@ -76,7 +76,7 @@ fn parse_multi<'a>(tokens: &'a [Token]) -> Result<(Box<Expression<'a>>, &'a [Tok
                 break;
             } else {
                 let (parameter, remain_tokens) = parse_single(tokens)?;
-                expression = Box::new(Expression::Apply(expression, parameter));
+                expression = Box::new(Node::Apply(expression, parameter));
                 tokens = remain_tokens;
             }
         } else {
@@ -86,7 +86,7 @@ fn parse_multi<'a>(tokens: &'a [Token]) -> Result<(Box<Expression<'a>>, &'a [Tok
     Ok((expression, tokens))
 }
 
-pub fn parse<'a>(tokens: &'a [Token]) -> Result<Box<Expression<'a>>, Error> {
+pub fn parse<'a>(tokens: &'a [Token]) -> Result<Box<Node<'a>>, Error> {
     let (expression, extra) = parse_multi(tokens)?;
     if !extra.is_empty() {
         Err(Error::ExtraRightParen)
