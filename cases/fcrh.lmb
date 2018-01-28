@@ -352,9 +352,7 @@
             (\_ gcd b (% a b))
       ) \gcd
       do
-        (puts (string 'a' space '=' space eos));
         (gets) | \sa ->
-        (puts (string 'b' space '=' space eos));
         (gets) | \sb ->
         (if (|| (== 0 (length sa)) (== 0 (length sb)))
           (\_ pass)
