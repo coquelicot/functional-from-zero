@@ -126,6 +126,18 @@
   ) \bin
   define (foldl (\c \b (+ (* c 2) b)) 0) \chr
 
+# general begin , end
+  define (\f, \f; \f. f,) \,
+  define (\f, \f; \f. f;) \;
+  define (\f, \f; \f. f.) \end
+  define (
+    \f, \f; \f. \iacc \isel
+      (Y \build \acc \fsel
+        (fsel f, f; f.)
+          build acc)
+      iacc isel
+  ) \new-begin
+
   define (** 2 5) \space
   define (++ space) \'!'
   define (++ '!') \'"'
@@ -235,14 +247,12 @@
   ) \string
 
   define (
-    (Y \build \xs \x
-      if (first x)
-        (\_ build (: (second x) xs))
-        (\_ reverse xs))
-    []
+    new-begin
+      (\next \xs \x next (: x xs))
+      (\next \xs \x next (: x xs))
+      (\next \xs reverse xs)
+      [] ,
   ) \list
-  define (\x pair 1 x) \item
-  define (pair 0 0) \list-end
 
   define (foldl (\v \c (+ (* 10 v) (- c '0'))) 0) \strtol
   define (
@@ -278,7 +288,7 @@
     \w pair (_getb w) (next_w w)
   ) \getb
 # IO ()
-  define (\w pair . w) \noio
+  define (\w pair . w) \pass
 
 # (a -> IO b) -> [a] -> IO [b]
   define (
@@ -292,12 +302,37 @@
         (map f xs)
   ) \mapM
 
+# do end
+  define (
+    new-begin
+      (\next \io (>>= io))
+      (\next \io . next (>> io))
+      (\next \io io)
+      pass ;
+  ) \do
+  define , \|
+  define do \->
+# (do
+#   (puts something);
+#   (putc endl);
+#   (gets) | \str ->
+#   (puts something);
+#   (gets) | \str ->
+#   (puts something);
+#   (do
+#     (nested statements);
+#     (no-semicolon-at-last-statement)
+#   end);
+#   (no-semicolon-at-last-statement)
+# end)
+
   (\mkio run_io (mkio 0) 0) \_
 
 ##### In Monad
 
   define (. (mapM (\b if b (\_ putb_1) (\_ putb_0))) bin) \putc
-  define (\xs >> (mapM putc xs) (putc endl)) \puts
+  define (mapM putc) \puts
+  define (\str do (puts str); (putc endl) end) \putsln
 
   define (>>= (mapM (\_ getb) (range 0 8)) (. return chr)) \getc
   define (
@@ -309,40 +344,36 @@
   ) \gets
 
   define (
-    \prompt
-      >>= (puts prompt) \_
-      >>= (putc '>') \_
-      >>= (putc space) \_
-      gets
-  ) \input
-
-  define (
-    define (
-      Y \fib \n
-        if (<= n 1)
-          (\_ 1)
-          (\_ (+ (fib (- n 1)) (fib (- n 2))))
-    ) \fib
     Y \loop
-      >>= (
-        input (string 'P' 'l' 'e' 'a' 's' 'e' space 'i' 'n' 'p' 'u' 't' space 'a' space 'n' 'u' 'm' 'b' 'e' 'r' eos)
-      ) \str
-        if (== 0 (length str))
-          (\_ noio)
+      define (
+        Y \gcd \a \b
+          if (== b 0)
+            (\_ a)
+            (\_ gcd b (% a b))
+      ) \gcd
+      do
+        (gets) | \sa ->
+        (gets) | \sb ->
+        (if (|| (== 0 (length sa)) (== 0 (length sb)))
+          (\_ pass)
           (\_
-            >>= (
-              (. puts flatten)
+            define (gcd (strtol sa) (strtol sb)) \ans
+            do
+              ((. putsln flatten)
                 (list
-                  (item (string 'f' 'i' 'b' left_bracket eos))
-                  (item str)
-                  (item (string right_bracket space '=' space eos))
-                  (item (ltostr (fib (strtol str))))
-                  list-end)
-            ) \_
-              loop)
-  ) \task-fib
+                  (string 'g' 'c' 'd' left_bracket eos),
+                  (sa),
+                  (string ',' space eos),
+                  (sb),
+                  (string right_bracket space '=' space eos),
+                  (ltostr ans)
+                end));
+              loop
+            end))
+      end
+  ) \task-gcd
 
-  task-fib
+  task-gcd
 
 ##### END
 )

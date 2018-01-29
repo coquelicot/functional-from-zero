@@ -15,6 +15,8 @@ using namespace std;
 
 struct expr_t;
 struct lmb_t {
+    bool pure;
+    lmb_t(bool _pure=true) : pure(_pure) {}
     virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg) = 0;
     virtual ~lmb_t() {}
 };
@@ -26,8 +28,8 @@ struct shadow_env_t {
     shared_ptr<lmb_t> shadow_val;
     env_t &orgi_env;
 
-    shadow_env_t(env_t &_orgi_env, int _shadow_idx=-1, shared_ptr<lmb_t> _shadow_val=nullptr)
-        : shadow_idx(_shadow_idx), shadow_val(_shadow_val), orgi_env(_orgi_env) {}
+    shadow_env_t(env_t &_orgi_env, int _shadow_idx=-1, shared_ptr<lmb_t> _shadow_val=nullptr) :
+        shadow_idx(_shadow_idx), shadow_val(_shadow_val), orgi_env(_orgi_env) {}
 
     const shared_ptr<lmb_t>& operator[](int idx) const {
         return idx == shadow_idx ? shadow_val : orgi_env[idx];
@@ -41,7 +43,14 @@ struct val_lmb_t : public lmb_t {
     env_t env;
 
     val_lmb_t(int _arg_idx, shared_ptr<expr_t> &_body, env_t &_env) :
-        arg_idx(_arg_idx), body(_body), env(_env) {}
+        lmb_t(true), arg_idx(_arg_idx), body(_body), env(_env) {
+
+        for (int i = 0; i < (int)env.size(); i++)
+            if (i != arg_idx && !env[i]->pure) {
+                pure = false;
+                break;
+            }
+    }
 
     virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg);
 };
@@ -90,16 +99,25 @@ struct apply_expr_t : public expr_t {
         func(_func), arg(_arg) {}
 
     virtual shared_ptr<lmb_t> eval(const shadow_env_t &env) {
-        return apply(func->eval(env), arg->eval(env));
+
+        auto lfunc = func->eval(env);
+        auto larg = arg->eval(env);
+
+        if (lfunc->pure && larg->pure) {
+
+            auto key = make_pair(lfunc, larg);
+            auto it = cache.find(key);
+
+            if (it != cache.end())
+                return it->second;
+            else
+                return cache[key] = lfunc->exec(larg);
+        }
+
+        return lfunc->exec(larg);
     }
 
     shared_ptr<lmb_t> apply(shared_ptr<lmb_t> func, shared_ptr<lmb_t> arg) {
-        auto key = make_pair(func, arg);
-        auto it = cache.find(key);
-        if (it != cache.end())
-            return it->second;
-        else
-            return cache[key] = func->exec(arg);
     }
 
     static void clear_cache() {
@@ -263,7 +281,8 @@ struct parser_t {
         //cerr << indent(depth) << "<<func" << endl;
         shared_ptr<expr_t> func = parse_single_expr(tok, ref, depth+1);
         //cerr << indent(depth) << "func>>" << endl;
-        while (tok.peak() != ")" && tok.peak() != "") {
+        while (tok.peak() != ")") {
+            assert(tok.peak() != "");
             //cerr << indent(depth) << "<<arg" << endl;
             auto arg = parse_single_expr(tok, ref, depth+1);
             auto key = make_tuple(func, arg);
@@ -339,7 +358,7 @@ struct native_lmb_t : public lmb_t {
     func_t func;
 
     native_lmb_t(size_t _args, func_t _func, argv_t _argv=argv_t()) :
-        args(_args), argv(_argv), func(_func) {}
+        lmb_t(false), args(_args), argv(_argv), func(_func) {}
 
     virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg) {
         if (argv.size() == args) {
@@ -362,13 +381,13 @@ int main(int argc, char *args[]) {
     parser_t parser;
 
     map<string, shared_ptr<lmb_t>> env;
-    env["__builtin_p0"] = make_shared<native_lmb_t>(0, [] (native_lmb_t::argv_t &argv) {
+    env["__builtin_p0"] = make_shared<native_lmb_t>(0, [&env] (native_lmb_t::argv_t &argv) {
         output(0);
-        return nullptr;
+        return env["__builtin_p0"];
     });
-    env["__builtin_p1"] = make_shared<native_lmb_t>(0, [] (native_lmb_t::argv_t &argv) {
+    env["__builtin_p1"] = make_shared<native_lmb_t>(0, [&env] (native_lmb_t::argv_t &argv) {
         output(1);
-        return nullptr;
+        return env["__builtin_p1"];
     });
     env["__builtin_g"] = make_shared<native_lmb_t>(2, [] (native_lmb_t::argv_t &argv) {
         return argv[input()];
