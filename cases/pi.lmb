@@ -9,6 +9,52 @@
   define (\p p (\x \y x)) \first
   define (\p p (\x \y y)) \second
 
-  define __builtin_debug \dd
-  ((Y \f \x f (dd x)) id)
+  # numbers
+  define (\f id) \0
+  define (\n \f . f (n f)) \inc
+  # TODO define (\x x) \dec
+  define (inc 0) \1
+
+  # true, false, if
+  define 1 \True
+  define 0 \False
+  define (\cond \t \f cond (\_ t) f id) \if
+  define (\b if b False True) \not
+
+  # addition / subtraction / mutiplication
+  define (\m \n m inc n) \+
+  # define (\m \n n dec m) \-
+  define (\m \n m (+ n) 0) \*
+
+  # list
+  define (pair 1 0) \[]
+  define (\x \y pair 0 (pair x y)) \:
+  define (first) \null
+  define (. first second) \head
+  define (. second second) \tail
+  define (Y \map \f \xs
+          if (null xs)
+            (\_ [])
+            (\_ (: (f (head xs)) (map f (tail xs))))) \map
+  define (Y \filter \f \xs
+          if (null xs)
+            (\_ [])
+            (\_ define (head xs) \h
+                define (tail xs) \t
+                if (f h) (: h (filter f t)) t)) \filter
+
+  define (inc 1) \2
+  define (inc 2) \3
+  define (inc 3) \4
+
+  define (Y \zz \f zz) \zz
+
+  # debug main
+  define (\n n __builtin_debug n) \debug_n
+  define (: 1 (: 2 (: 3 []))) \tl
+  define (map inc tl) \tl2
+  if True
+    (\_ zz (debug_n (head tl2)) (debug_n (+ 1 1)))
+    (\_ debug_n 4)
+  # ((Y \f \x f (dd x)) id)
 )) \x \y y x
