@@ -5,6 +5,6 @@ extern crate regex;
 pub mod tokenizer;
 pub mod parser;
 pub mod transformer;
-pub mod interpreter;
+pub mod runner;
 
 pub mod bitio;

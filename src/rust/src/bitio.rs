@@ -1,6 +1,7 @@
 use std::io;
 use std::io::Write;
 
+#[derive(Debug)]
 pub struct BitOutputStream {
     buffer_byte: u8,
     buffer_idx: i8,
