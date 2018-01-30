@@ -84,6 +84,8 @@ impl<'a> Environment<'a> for OverlayEnvironment<'a> {
 lazy_static! {
     static ref BIT_STDOUT: Mutex<bitio::BitOutputStream> = (
         Mutex::new(bitio::BitOutputStream::new()));
+    static ref BIT_STDIN: Mutex<bitio::BitInputStream> = (
+        Mutex::new(bitio::BitInputStream::new()));
 }
 
 #[derive(Debug)]
@@ -101,6 +103,44 @@ impl<'a> Lambda<'a> for BitOutputLambda {
     fn apply(&self, arg: RcLambda<'a>) -> LambdaReturn<'a> {
         BIT_STDOUT.lock().unwrap().write(self.bit);
         Ok((arg, false))
+    }
+}
+
+#[derive(Debug)]
+struct BitInputLambda {}
+
+impl BitInputLambda {
+    fn new() -> BitInputLambda {
+        BitInputLambda {}
+    }
+}
+
+impl<'a> Lambda<'a> for BitInputLambda {
+    fn apply(&self, arg: RcLambda<'a>) -> LambdaReturn<'a> {
+        let bit = BIT_STDIN.lock().unwrap().read();
+        Ok((
+            Rc::from(BitInputLambda2 {
+                bit,
+                first_arg: arg,
+            }),
+            false,
+        ))
+    }
+}
+
+#[derive(Debug)]
+struct BitInputLambda2<'a> {
+    bit: u8,
+    first_arg: RcLambda<'a>,
+}
+
+impl<'a> Lambda<'a> for BitInputLambda2<'a> {
+    fn apply(&self, arg: RcLambda<'a>) -> LambdaReturn<'a> {
+        if self.bit == 0 {
+            Ok((Rc::clone(&self.first_arg), false))
+        } else {
+            Ok((arg, false))
+        }
     }
 }
 
@@ -177,7 +217,7 @@ pub fn run(expression: &Expression, free_vars: &Vec<&str>) -> Result<(), Error> 
         match *name {
             "__builtin_p0" => environment.push(Rc::from(BitOutputLambda::new(0))),
             "__builtin_p1" => environment.push(Rc::from(BitOutputLambda::new(1))),
-            "__builtin_g" => environment.push(Rc::from(BitOutputLambda::new(1))),
+            "__builtin_g" => environment.push(Rc::from(BitInputLambda::new())),
             var => undefined_vars.push(var.to_string()),
         }
     }

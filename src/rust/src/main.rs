@@ -1,19 +1,28 @@
 extern crate functional_from_zero;
 
-use std::io;
+use std::{env, fs};
+use std::io::Read;
 
 use functional_from_zero::{parser, runner, tokenizer, transformer};
 
-fn read_code_without_comment() -> String {
-    let stdin = io::stdin();
-    let mut line = String::new();
-    let mut code = String::new();
+fn read_code() -> String {
+    let filename = env::args().skip(1).next().expect("No filename given.");
 
-    while stdin.read_line(&mut line).expect("Invalid UTF-8 in input.") > 0 {
+    let mut code = String::new();
+    fs::File::open(filename)
+        .expect("Can't open file")
+        .read_to_string(&mut code)
+        .expect("Can't read file.");
+    code
+}
+
+fn read_code_without_comment() -> String {
+    let mut code = String::new();
+    for line in read_code().lines() {
         if !line.starts_with('#') {
             code.push_str(&line);
+            code.push_str("\n")
         }
-        line.clear();
     }
     code
 }
