@@ -1,0 +1,14 @@
+(\define (
+  # prelude
+  define (\x x) \id
+  define (\g \f \x (g (f x))) \.
+  define (\f (\x x x) (\x \u f (x x) u)) \Y
+
+  # pair
+  define (\x \y \f f x y) \pair
+  define (\p p (\x \y x)) \first
+  define (\p p (\x \y y)) \second
+
+  define __builtin_debug \dd
+  ((Y \f \x f (dd x)) id)
+)) \x \y y x

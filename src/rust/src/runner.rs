@@ -89,6 +89,23 @@ lazy_static! {
 }
 
 #[derive(Debug)]
+struct DebugLambda {
+}
+
+impl DebugLambda {
+    fn new() -> DebugLambda {
+        DebugLambda {}
+    }
+}
+
+impl<'a> Lambda<'a> for DebugLambda {
+    fn apply(&self, arg: RcLambda<'a>) -> LambdaReturn<'a> {
+        println!("Debug Lambda called!");
+        Ok((arg, false))
+    }
+}
+
+#[derive(Debug)]
 struct BitOutputLambda {
     bit: u8,
 }
@@ -218,6 +235,7 @@ pub fn run(expression: &Expression, free_vars: &Vec<&str>) -> Result<(), Error> 
             "__builtin_p0" => environment.push(Rc::from(BitOutputLambda::new(0))),
             "__builtin_p1" => environment.push(Rc::from(BitOutputLambda::new(1))),
             "__builtin_g" => environment.push(Rc::from(BitInputLambda::new())),
+            "__builtin_debug" => environment.push(Rc::from(DebugLambda::new())),
             var => undefined_vars.push(var.to_string()),
         }
     }

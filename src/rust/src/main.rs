@@ -19,7 +19,7 @@ fn read_code() -> String {
 fn read_code_without_comment() -> String {
     let mut code = String::new();
     for line in read_code().lines() {
-        if !line.starts_with('#') {
+        if !line.trim().starts_with('#') {
             code.push_str(&line);
             code.push_str("\n")
         }
