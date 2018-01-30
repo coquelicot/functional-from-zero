@@ -1,6 +1,9 @@
 use std::{error, fmt};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Mutex;
+use std::hash::{Hash, Hasher};
+use std::borrow::Borrow;
 
 use super::transformer;
 use super::transformer::Expression;
@@ -10,33 +13,60 @@ type RcLambda<'a> = Rc<Lambda<'a> + 'a>;
 type LambdaReturn<'a> = Result<(RcLambda<'a>, bool), Error>;
 
 trait Lambda<'a>: fmt::Debug {
-    fn apply(&self, arg: RcLambda<'a>) -> LambdaReturn<'a>;
+    fn apply(&self, arg: RcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a>;
 }
 
-#[derive(Debug)]
-struct DummyLambda {}
+// #[derive(Debug)]
+// struct DummyLambda {}
 
-impl<'a> Lambda<'a> for DummyLambda {
-    fn apply(&self, _: RcLambda<'a>) -> LambdaReturn<'a> {
-        Err(Error::DummyLambdaCalled)
-    }
-}
+// impl<'a> Lambda<'a> for DummyLambda {
+//     fn apply(&self, _: RcLambda<'a>) -> LambdaReturn<'a> {
+//         Err(Error::DummyLambdaCalled)
+//     }
+// }
 
 #[derive(Debug)]
 struct Closure<'a> {
-    arg: usize,
-    environment: Rc<Environment<'a> + 'a>,
+    environment: Rc<BaseEnvironment<'a>>,
     body: &'a Expression,
 }
 
+impl<'a> Hash for BaseEnvironment<'a> {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        for ref val in self.values.iter() {
+            let ptr = Rc::into_raw(Rc::clone(&val));
+            ptr.hash(state);
+            let _ = unsafe { Rc::from_raw(ptr) };
+        }
+    }
+}
+
+impl<'a> PartialEq for BaseEnvironment<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.values.len() != other.values.len() {
+            return false;
+        }
+        for (i, val) in self.values.iter().enumerate() {
+            if !Rc::ptr_eq(&val, &other.values[i]) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl<'a> Eq for BaseEnvironment<'a> {}
+
 impl<'a> Lambda<'a> for Closure<'a> {
-    fn apply(&self, arg: RcLambda<'a>) -> LambdaReturn<'a> {
+    fn apply(&self, arg: RcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a> {
         let environment = OverlayEnvironment {
             base: Rc::clone(&self.environment),
-            overlay_idx: self.arg,
-            overlay_value: arg,
+            arg_value: arg,
         };
-        run_impl(&self.body, &environment)
+        run_impl(self.body, &environment, cache)
     }
 }
 
@@ -66,17 +96,16 @@ impl<'a> Environment<'a> for BaseEnvironment<'a> {
 
 #[derive(Debug)]
 struct OverlayEnvironment<'a> {
-    base: Rc<Environment<'a> + 'a>,
-    overlay_idx: usize,
-    overlay_value: Rc<Lambda<'a> + 'a>,
+    base: Rc<BaseEnvironment<'a>>,
+    arg_value: Rc<Lambda<'a> + 'a>,
 }
 
 impl<'a> Environment<'a> for OverlayEnvironment<'a> {
     fn get(&self, name: usize) -> RcLambda<'a> {
-        if name == self.overlay_idx {
-            Rc::clone(&self.overlay_value)
+        if name == 0 {
+            Rc::clone(&self.arg_value)
         } else {
-            self.base.get(name)
+            self.base.get(name - 1)
         }
     }
 }
@@ -89,8 +118,7 @@ lazy_static! {
 }
 
 #[derive(Debug)]
-struct DebugLambda {
-}
+struct DebugLambda {}
 
 impl DebugLambda {
     fn new() -> DebugLambda {
@@ -99,8 +127,8 @@ impl DebugLambda {
 }
 
 impl<'a> Lambda<'a> for DebugLambda {
-    fn apply(&self, arg: RcLambda<'a>) -> LambdaReturn<'a> {
-        println!("Debug Lambda called!");
+    fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+        println!("[debug] arg = {:p}", arg.as_ref());
         Ok((arg, false))
     }
 }
@@ -117,7 +145,7 @@ impl BitOutputLambda {
 }
 
 impl<'a> Lambda<'a> for BitOutputLambda {
-    fn apply(&self, arg: RcLambda<'a>) -> LambdaReturn<'a> {
+    fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         BIT_STDOUT.lock().unwrap().write(self.bit);
         Ok((arg, false))
     }
@@ -133,12 +161,42 @@ impl BitInputLambda {
 }
 
 impl<'a> Lambda<'a> for BitInputLambda {
-    fn apply(&self, arg: RcLambda<'a>) -> LambdaReturn<'a> {
-        let bit = BIT_STDIN.lock().unwrap().read();
+    fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+        Ok((Rc::from(BitInputLambda1 { first_arg: arg }), true))
+    }
+}
+
+#[derive(Debug)]
+struct BitInputLambda1<'a> {
+    first_arg: RcLambda<'a>,
+}
+
+impl<'a> Lambda<'a> for BitInputLambda1<'a> {
+    fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         Ok((
             Rc::from(BitInputLambda2 {
-                bit,
-                first_arg: arg,
+                first_arg: Rc::clone(&self.first_arg),
+                second_arg: Rc::clone(&arg),
+            }),
+            true,
+        ))
+    }
+}
+
+#[derive(Debug)]
+struct BitInputLambda2<'a> {
+    first_arg: RcLambda<'a>,
+    second_arg: RcLambda<'a>,
+}
+
+impl<'a> Lambda<'a> for BitInputLambda2<'a> {
+    fn apply(&self, _arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+        let bit = BIT_STDIN.lock().unwrap().read();
+        Ok((
+            Rc::clone(if bit == 0 {
+                &self.first_arg
+            } else {
+                &self.second_arg
             }),
             false,
         ))
@@ -146,32 +204,16 @@ impl<'a> Lambda<'a> for BitInputLambda {
 }
 
 #[derive(Debug)]
-struct BitInputLambda2<'a> {
-    bit: u8,
-    first_arg: RcLambda<'a>,
-}
-
-impl<'a> Lambda<'a> for BitInputLambda2<'a> {
-    fn apply(&self, arg: RcLambda<'a>) -> LambdaReturn<'a> {
-        if self.bit == 0 {
-            Ok((Rc::clone(&self.first_arg), false))
-        } else {
-            Ok((arg, false))
-        }
-    }
-}
-
-#[derive(Debug)]
 pub enum Error {
     UndefinedVariable(Vec<String>),
-    DummyLambdaCalled,
+    // DummyLambdaCalled,
 }
 
 impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {
             Error::UndefinedVariable(_) => "undefined free variable",
-            Error::DummyLambdaCalled => "dummy lambda called",
+            // Error::DummyLambdaCalled => "dummy lambda called",
         }
     }
 }
@@ -182,12 +224,30 @@ impl fmt::Display for Error {
             Error::UndefinedVariable(ref vars) => {
                 write!(f, "Undefined free variables [{}]", vars.join(", "))
             }
-            Error::DummyLambdaCalled => write!(f, "Dummy lambda called!"),
+            // Error::DummyLambdaCalled => write!(f, "Dummy lambda called!"),
         }
     }
 }
 
-fn run_impl<'a>(expression: &'a Expression, environment: &Environment<'a>) -> LambdaReturn<'a> {
+struct RunCache<'a> {
+    closure_cache: HashMap<(Rc<BaseEnvironment<'a>>, *const Expression), Rc<Closure<'a>>>,
+    apply_cache: HashMap<(*const (Lambda<'a> + 'a), *const (Lambda<'a> + 'a)), RcLambda<'a>>,
+}
+
+impl<'a> RunCache<'a> {
+    fn new() -> RunCache<'a> {
+        RunCache {
+            closure_cache: HashMap::new(),
+            apply_cache: HashMap::new(),
+        }
+    }
+}
+
+fn run_impl<'a>(
+    expression: &'a Expression,
+    environment: &Environment<'a>,
+    cache: &mut RunCache<'a>,
+) -> LambdaReturn<'a> {
     match *expression {
         Expression::Identifier(transformer::IdentifierExpression { name }) => {
             Ok((environment.get(name), true))
@@ -196,33 +256,42 @@ fn run_impl<'a>(expression: &'a Expression, environment: &Environment<'a>) -> La
             ref lambda,
             ref parameter,
         }) => {
-            let (lambda, lambda_pure) = run_impl(lambda, environment)?;
-            let (parameter, parameter_pure) = run_impl(parameter, environment)?;
-            let (result, apply_pure) = lambda.apply(parameter)?;
+            let (lambda, lambda_pure) = run_impl(lambda, environment, cache)?;
+            let (parameter, parameter_pure) = run_impl(parameter, environment, cache)?;
+            let lambda_ptr = Rc::into_raw(lambda.clone());
+            let parameter_ptr = Rc::into_raw(parameter.clone());
+            if let Some(result) = cache.apply_cache.get(&(lambda_ptr, parameter_ptr)) {
+                return Ok((result.clone(), lambda_pure && parameter_pure));
+            }
+            let (result, apply_pure) = lambda.apply(parameter, cache)?;
+            if apply_pure {
+                cache
+                    .apply_cache
+                    .insert((lambda_ptr, parameter_ptr), result.clone());
+            }
+            let _ = unsafe { Rc::from_raw(parameter_ptr) };
+            let _ = unsafe { Rc::from_raw(lambda_ptr) };
             Ok((result, lambda_pure && parameter_pure && apply_pure))
         }
         Expression::Lambda(transformer::LambdaExpression {
-            arg,
             ref env_map,
             ref body,
         }) => {
             let mut new_environment = BaseEnvironment::new();
             for &parent_idx in env_map.iter() {
-                if parent_idx != -1 {
-                    new_environment.push(environment.get(parent_idx as usize))
-                } else {
-                    // TODO(Darkpi): Use the same dummy lambda everywhere.
-                    new_environment.push(Rc::from(DummyLambda {}))
-                }
+                new_environment.push(environment.get(parent_idx as usize))
             }
-            Ok((
-                Rc::from(Closure {
-                    arg,
-                    environment: Rc::from(new_environment),
-                    body: body.as_ref(),
-                }),
-                true,
-            ))
+            let new_environment = Rc::from(new_environment);
+            let closure = cache
+                .closure_cache
+                .entry((new_environment.clone(), body.borrow() as *const Expression))
+                .or_insert_with(|| {
+                    Rc::from(Closure {
+                        environment: new_environment,
+                        body: body,
+                    })
+                });
+            Ok((closure.clone(), true))
         }
     }
 }
@@ -242,6 +311,7 @@ pub fn run(expression: &Expression, free_vars: &Vec<&str>) -> Result<(), Error> 
     if !undefined_vars.is_empty() {
         return Err(Error::UndefinedVariable(undefined_vars));
     }
-    run_impl(expression, &environment)?;
+    let mut cache = RunCache::new();
+    run_impl(expression, &environment, &mut cache)?;
     Ok(())
 }

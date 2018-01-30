@@ -9,7 +9,6 @@ pub struct IdentifierExpression {
 
 #[derive(Debug)]
 pub struct LambdaExpression {
-    pub arg: usize,
     pub env_map: Vec<isize>,
     pub body: Box<Expression>,
 }
@@ -52,15 +51,17 @@ fn transform_impl<'a>(root: &Node<'a>, free_vars: &mut VariableNameMap<'a>) -> E
         }
         Node::Lambda(arg_name, ref body) => {
             let mut body_free_vars = VariableNameMap::new();
-            let body = Box::from(transform_impl(body, &mut body_free_vars));
             let arg = body_free_vars.get_or_insert(arg_name);
-            let mut env_map = vec![-1; body_free_vars.map.len()];
+            assert!(arg == 0);
+            let body = Box::from(transform_impl(body, &mut body_free_vars));
+            let mut env_map = vec![-1; body_free_vars.map.len() - 1];
             for (name, idx) in body_free_vars.map {
-                if name != arg_name {
-                    env_map[idx] = free_vars.get_or_insert(name) as isize;
+                assert!(name != arg_name || idx == 0);
+                if idx > 0 {
+                    env_map[idx - 1] = free_vars.get_or_insert(name) as isize;
                 }
             }
-            Expression::Lambda(LambdaExpression { arg, body, env_map })
+            Expression::Lambda(LambdaExpression { body, env_map })
         }
         Node::Apply(ref lambda, ref parameter) => {
             let lambda = Box::from(transform_impl(lambda, free_vars));
