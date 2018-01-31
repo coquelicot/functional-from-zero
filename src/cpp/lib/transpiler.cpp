@@ -1,84 +1,133 @@
 #include "transpiler.hpp"
 #include <sstream>
-#include <cassert>
 #include <iostream>
+#include <cassert>
 
-code_block_t::code_block_t(const std::string &_retv, const std::string &_code, std::vector<std::shared_ptr<code_func_t>> &_deps) :
-    retv(_retv), code(_code), deps(_deps) {}
+code_block_t::code_block_t(std::string &_retv, std::vector<code_inst_t> &_insts, std::vector<std::shared_ptr<code_lmb_t>> &_deps) :
+    retv(_retv), insts(_insts), deps(_deps) {};
 
-code_func_t::code_func_t(const std::string &_name, const std::vector<std::string> &_envs, code_block_t &_body) :
-    name(_name), envs(_envs), body(_body) {}
+code_lmb_t::code_lmb_t(std::string &_name, std::string &_arg, std::vector<std::string> &_envs, code_block_t &_body) :
+    name(_name), arg(_arg), envs(_envs), body(_body) {}
 
 transpiler_t::transpiler_t(std::set<std::string> &_builtins)
-    : ident_cnt(0), builtins(_builtins) {}
+    : builtins(_builtins) {}
 
-std::string transpiler_t::gen_ident() {
+std::string transpiler_t::next_ident() {
     std::stringstream ss;
-    ss << "_" << ++ident_cnt;
+    ss << "_" << global_id++;
     return ss.str();
 }
 
 void transpiler_t::transpile(node_hdr_t node, std::ostream &stm) {
 
-    std::string retv = gen_ident();
-    std::stringstream code;
+    global_id = 1;
+    ident_map.clear();
+    std::vector<code_inst_t> insts;
     std::set<std::string> envs;
-    std::vector<std::shared_ptr<code_func_t>> deps;
+    std::vector<std::shared_ptr<code_lmb_t>> deps;
 
-    code << "int main() {\n";
-    __transpile(node, retv, code, envs, deps);
-    code << "}\n";
+    std::string name = next_ident();
+    std::string arg = next_ident();
+    std::string retv = next_ident();
+    __transpile(node, retv, insts, envs, deps);
 
-    for (auto env : envs) {
-        std::cerr << env << std::endl;
-        assert(builtins.count(env));
-    }
-
-    code_block_t prog(retv, code.str(), deps);
+    std::vector<std::string> _envs;
+    code_block_t block(retv, insts, deps);
+    code_lmb_t prog(retv, arg, _envs, block);
 
     stm << "#include \"runtime.hpp\"\n";
     __emit(prog, stm);
+    stm << "int main() {\n"
+        << "  std::make_shared<" << prog.name << ">()->exec(nullptr);\n"
+        << "}\n";
 }
 
-void transpiler_t::__emit(code_block_t &block, std::ostream &stm) {
-    for (auto dep : block.deps)
-        __emit(dep->body, stm);
-    stm << block.code;
+void transpiler_t::__emit(code_lmb_t &lmb, std::ostream &stm) {
+
+    for (auto dep : lmb.body.deps)
+        __emit(*dep, stm);
+
+    // header
+    stm << "struct " << lmb.name << " : public lmb_t {\n";
+
+    // eval
+    stm << "  std::shared_ptr<lmb_t> exec(std::shared_ptr<lmb_t> " << lmb.arg << ") {\n";
+    for (auto inst : lmb.body.insts) {
+        stm << "    auto " << inst.retv << " = ";
+        if (inst.type == code_inst_t::APPLY) {
+            stm << inst.func << "->exec(" << inst.arg << ");\n";
+        } else {
+            stm << "std::make_shared<" << inst.lmb->name << ">(";
+            for (size_t i = 0; i < inst.envs.size(); i++) {
+                if (i > 0)
+                    stm << ", ";
+                stm << inst.envs[i];
+            }
+            stm << ");\n";
+        }
+    }
+    stm << "    return " << lmb.body.retv << ";\n";
+    stm << "  };\n";
+
+    // constructor
+    stm << "  " << lmb.name << "(";
+    for (size_t i = 0; i < lmb.envs.size(); i++) {
+        if (i > 0)
+            stm << ", ";
+        stm << "std::shared_ptr<lmb_t> _" << lmb.envs[i];
+    }
+    stm << ")";
+    for (size_t i = 0; i < lmb.envs.size(); i++) {
+        stm << (i > 0 ? ", " : " : ");
+        stm << lmb.envs[i] << "(_" << lmb.envs[i] << ")";
+    }
+    stm << " {}\n";
+
+    // vars
+    if (lmb.envs.size() > 0) {
+        stm << "  std::shared_ptr<lmb_t> ";
+        for (size_t i = 0; i < lmb.envs.size(); i++) {
+            if (i > 0)
+                stm << ", ";
+            stm << lmb.envs[i];
+        }
+        stm << ";\n";
+    }
+
+    // end
+    stm << "};\n";
 }
 
 void transpiler_t::__transpile(
     node_hdr_t _node,
     std::string &retv,
-    std::stringstream &code,
+    std::vector<code_inst_t> &insts,
     std::set<std::string> &envs,
-    std::vector<std::shared_ptr<code_func_t>> &deps)
+    std::vector<std::shared_ptr<code_lmb_t>> &deps)
 {
 
     try {
         term_node_t &node = dynamic_cast<term_node_t&>(*_node);
 
-        std::string ident;
         if (builtins.count(node.ident)) {
-            ident = node.ident;
+            retv = node.ident;
         } else {
-            if (!ident_map.count(node.ident))
-                ident_map[node.ident] = gen_ident();
-            ident = ident_map[node.ident];
-            envs.insert(ident);
+            assert(ident_map.count(node.ident));
+            retv = ident_map[node.ident];
+            envs.insert(retv);
         }
 
-        retv = ident;
         return;
     } catch (std::bad_cast e) {}
 
     try {
         apply_node_t &node = dynamic_cast<apply_node_t&>(*_node);
 
-        std::string fun = gen_ident();
-        std::string arg = gen_ident();
-        __transpile(node.nd_fun, fun, code, envs, deps);
-        __transpile(node.nd_arg, arg, code, envs, deps);
-        code << "auto " << retv << " = " << fun << "->exec(" << arg << ");\n";
+        std::string func = next_ident();
+        std::string arg = next_ident();
+        __transpile(node.nd_fun, func, insts, envs, deps);
+        __transpile(node.nd_arg, arg, insts, envs, deps);
+        insts.push_back(code_inst_t{code_inst_t::APPLY, retv, func, arg, nullptr, {}});
 
         return;
     } catch (std::bad_cast e) {}
@@ -86,60 +135,33 @@ void transpiler_t::__transpile(
     try {
         lmb_node_t &node = dynamic_cast<lmb_node_t&>(*_node);
 
-        if (!ident_map.count(node.arg))
-            ident_map[node.arg] = gen_ident();
+        bool new_ident = !ident_map.count(node.arg);
+        if (new_ident)
+            ident_map[node.arg] = next_ident();
 
-        std::string name = gen_ident();
+        std::string name = next_ident();
         std::string arg = ident_map[node.arg];
-        std::string lmb_retv = gen_ident();
-        std::stringstream lmb_code;
+        std::string lmb_retv = next_ident();
+        std::vector<code_inst_t> lmb_insts;
         std::set<std::string> lmb_envs;
-        std::vector<std::shared_ptr<code_func_t>> lmb_deps;
+        std::vector<std::shared_ptr<code_lmb_t>> lmb_deps;
 
-        lmb_code << "struct " << name << " : public lmb_t {\n";
+        __transpile(node.nd_body, lmb_retv, lmb_insts, lmb_envs, lmb_deps);
 
-        // exec
-        lmb_code << "std::shared_ptr<lmb_t> exec(std::shared_ptr<lmb_t> " << arg << ") {\n";
-        __transpile(node.nd_body, lmb_retv, lmb_code, lmb_envs, lmb_deps);
-        lmb_envs.erase(arg);
-        lmb_code << "return " << lmb_retv << ";\n";
-        lmb_code << "};\n";
-
-        // constructor
-        std::vector<std::string> lmb_venvs(lmb_envs.begin(), lmb_envs.end());
-        lmb_code << name << "(";
-        for (size_t i = 0; i < lmb_venvs.size(); i++) {
-            if (i > 0)
-                lmb_code << ", ";
-            lmb_code << "std::shared_ptr<lmb_t> &" << "_" << lmb_venvs[i];
-        }
-        lmb_code << ")";
-        for (size_t i = 0; i < lmb_venvs.size(); i++) {
-            lmb_code << (i == 0 ? " : " : ", ");
-            lmb_code << lmb_venvs[i] << "(_" << lmb_venvs[i] << ")";
-        }
-        lmb_code << " {};\n";
-
-        // member
-        for (size_t i = 0; i < lmb_venvs.size(); i++)
-            lmb_code << "std::shared_ptr<lmb_t> " << lmb_venvs[i] << ";\n";
-
-        lmb_code << "};\n";
-
-        // code
-
-        code << "auto " << retv << " = std::make_shared<" << name << ">(";
-        for (size_t i = 0; i < lmb_venvs.size(); i++) {
-            if (i != 0)
-                code << ", ";
-            code << lmb_venvs[i];
-        }
-        code << ");\n";
-
-        code_block_t block{lmb_retv, lmb_code.str(), lmb_deps};
-        deps.push_back(std::make_shared<code_func_t>(name, lmb_venvs, block));
+        std::vector<std::string> venvs;
         for (auto env : lmb_envs)
-            envs.insert(env);
+            if (env != arg) {
+                venvs.push_back(env);
+                envs.insert(env);
+            }
+
+        code_block_t block{lmb_retv, lmb_insts, lmb_deps};
+        deps.push_back(std::make_shared<code_lmb_t>(name, arg, venvs, block));
+
+        insts.push_back(code_inst_t{code_inst_t::LAMBDA, retv, "", "", deps.back(), venvs});
+
+        if (new_ident)
+            ident_map.erase(node.arg);
 
         return;
     } catch (std::bad_cast e) {}

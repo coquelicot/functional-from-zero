@@ -6,7 +6,7 @@ LIBDIR=$(DIR)/lib
 OBJDIR=$(DIR)/build
 
 CC=g++
-CFLAGS=-std=c++1y -O2 -I$(INCDIR) -Wall -Wextra
+CFLAGS=-std=c++11 -O2 -I$(INCDIR) -Wall -Wextra
 
 SRCS=$(DIR)/lmb_c.cpp $(shell find $(LIBDIR) -name '*.cpp')
 OBJS=$(SRCS:$(DIR)%.cpp=$(OBJDIR)%.o)
