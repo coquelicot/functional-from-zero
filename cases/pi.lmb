@@ -79,14 +79,20 @@
   def (inc 3) \4
   def (inc 4) \5
   def (inc 5) \6
-  def (* 2 4) \8
+  def (inc 6) \7
+  def (inc 7) \8
+  def (inc 8) \9
 
   # chars
+  def (* 2 5) \10
   def (* 2 8) \16
   def (* 2 16) \32
   def (+ 16 32) \48
   def (* 2 32) \64
   def (+ 32 64) \96
+  def (* 5 (* 5 5)) \125
+  def (- 125 2) \123
+  def 10 \newline
   def 32 \space
   def 48 \'0' def (inc '0') \'1' def (inc '1') \'2' def (inc '2') \'3' def (inc '3') \'4'
   def (inc '4') \'5' def (inc '5') \'6' def (inc '6') \'7' def (inc '7') \'8' def (inc '8') \'9'
@@ -104,6 +110,8 @@
   def (inc 'o') \'p' def (inc 'p') \'q' def (inc 'q') \'r' def (inc 'r') \'s' def (inc 's') \'t'
   def (inc 't') \'u' def (inc 'u') \'v' def (inc 'v') \'w' def (inc 'w') \'x' def (inc 'x') \'y'
   def (inc 'y') \'z'
+  def 125 \'}'
+  def 123 \'{'
 
   def (
     def (Y \f \acc \c if c (\_ f (: c acc)) (\_ reverse acc)) \f
@@ -135,6 +143,8 @@
   def 0 \0::0
   def 1 \0::1
   def 2 \0::2
+  def 3 \0::3
+  def 4 \0::4
   def 5 \0::5
   def dec \0::dec
   def inc \0::inc
@@ -151,14 +161,18 @@
   # types!
   def 0 \Pair
   def 1 \Bool
-  def 2 \List
-  def 3 \U32
+  def 2 \Symbol
+  def 3 \List
+  def 4 \U32
+  def 5 \IO
   def (
     : (<<EOS 'P' 'a' 'i' 'r' EOS) (
     : (<<EOS 'B' 'o' 'o' 'l' EOS) (
+    : (<<EOS 'S' 'y' 'm' 'b' 'o' 'l' EOS) (
     : (<<EOS 'L' 'i' 's' 't' EOS) (
     : (<<EOS 'U' '3' '2' EOS) (
-    []))))) \_type_table
+    : (<<EOS 'I' 'O' EOS) (
+    []))))))) \_type_table
   def first \typeof
   def (!! _type_table) \typename
 
@@ -171,6 +185,10 @@
   def (<<EOS 'h' 'e' 'a' 'd' EOS) \"head"
   def (<<EOS 't' 'a' 'i' 'l' EOS) \"tail"
   def (<<EOS space 'c' 'a' 'l' 'l' 'e' 'd' space 'o' 'n' space 'e' 'm' 'p' 't' 'y' space 'l' 'i' 's' 't' EOS) \"_called_on_empty_list"
+  def (<<EOS space 'c' 'a' 'l' 'l' 'e' 'd' space 'o' 'n' space 'e' 'm' 'p' 't' 'y' space 'l' 'i' 's' 't' EOS) \"_called_on_empty_list"
+  def (<<EOS 'S' 'y' 'n' 't' 'a' 'x' space 'e' 'r' 'r' 'o' 'r' space 'e' 'x' 'p' 'e' 'c' 't' space EOS) \"Syntax_error_expect_"
+  def (<<EOS '{' EOS) \"{"
+  def (<<EOS '}' EOS) \"}"
 
   # dynamic type check
   def (\t \func \arg
@@ -182,8 +200,10 @@
 
   def (_check_arg_type Bool) \Bool:
   def (_check_arg_type Pair) \Pair:
+  def (_check_arg_type Symbol) \Symbol:
   def (_check_arg_type List) \List:
   def (_check_arg_type U32) \U32:
+  def (_check_arg_type IO) \IO:
 
   # world 0 -> world 1 converter.
   def second \_down
@@ -193,8 +213,12 @@
   def (\t1 \t2 \f _check_arg_type t1 \x _check_arg_type t2 \y f (_down x) (_down y)) \_up2
   def (_with_type Bool) \[Bool]
   def (_with_type Pair) \[Pair]
+  def (_with_type Symbol) \[Symbol]
   def (_with_type List) \[List]
   def (_with_type U32) \[U32]
+  def (_with_type IO) \[IO]
+
+  def (\x \c [Bool] (0::== (typeof x) c)) \instanceof
 
   # Update world 0: pair
   def (\x \y [Pair] (pair x y)) \pair
@@ -210,6 +234,17 @@
   def (_up_return Bool (_up1 Bool not)) \not
   def (_up_return Bool (_up2 Bool Bool ||)) \||
   def (_up_return Bool (_up2 Bool Bool &&)) \&&
+
+  # Symbol type.
+  # TODO(Darkpi): Can reuse different type if needed.
+  def ([Symbol] 0::0) \cmp::EQ
+  def ([Symbol] 0::1) \cmp::GT
+  def ([Symbol] 0::2) \cmp::LT
+  def ([Symbol] 0::3) \{
+  def ([Symbol] 0::4) \}
+
+  def (Symbol: \x Symbol: \y [Bool] (0::== (_down x) (_down y))) \Symbol::==
+  def (Symbol: \x Symbol: \y not (Symbol::== x y)) \Symbol::!=
 
   # Reconstructing world 1 list.
   # ListRaw: (0::pair (1::bool) (0::pair item ListRaw))
@@ -241,6 +276,21 @@
             (\_ def (head xs) \h
                 def (tail xs) \t
                 if (f h) (: h (filter f t)) t)) \filter
+
+  # f: [a] -> b, a with type and not Symbol.
+  # blockify f { a a a a a a } -> b
+  def (\f
+    def (Y \iter \acc \x
+      if (instanceof x Symbol)
+         (\_ if (Symbol::== x })
+                (\_ f (reverse acc))
+                (\_ panic "Syntax_error_expect_" "}" abort))
+         (\_ iter (: x acc))) \iter
+    Symbol: \x if (Symbol::== x {)
+                  (\_ iter [])
+                  (\_ panic "Syntax_error_expect_" "{" abort)) \blockify
+
+  def (blockify id {) \List{
 
   # u32
   def 0::5 \_bitlenlog
@@ -292,11 +342,6 @@
     U32 \x [U32] (~step _bitlenlog (_down x))
   ) \~
 
-  # TODO(Darkpi): Symbol type.
-  def 0::2 \LT
-  def 0::1 \GT
-  def 0::0 \EQ
-
   def (
     def (Y \cmpstep \l \x \y
       0::if l
@@ -306,40 +351,56 @@
             def (0::second y) \y1
             def (0::dec l) \nl
             def (cmpstep nl x0 y0) \s0
-            0::if s0 (const s0)
-                     (\_ cmpstep nl x1 y1))
+            if (Symbol::!= s0 cmp::EQ)
+               (const s0)
+               \_ cmpstep nl x1 y1)
         (\_ 0::if (0::< x y)
-                  (const LT)
+                  (const cmp::LT)
                   (\_ 0::if (0::< y x)
-                            (const GT)
-                            (const EQ)))) \cmpstep
+                            (const cmp::GT)
+                            (const cmp::EQ)))) \cmpstep
     U32: \x U32: \y
       (cmpstep _bitlenlog (_down x) (_down y))
   ) \cmp
 
-  def (
-    def (Y \0step \l
-      0::if l
-         (\_ def (0step (dec l)) \v
-             0::pair v v)
-         (const 0::0)) \0step
-    [U32] (0step _bitlenlog)
-  ) \0
+  def (Y \_0step \l
+    0::if l
+       (\_ def (_0step (0::dec l)) \v
+           0::pair v v)
+       (const 0::0)) \_0step
+  def ([U32] (_0step _bitlenlog)) \0
 
   def (inc 0) \1
-  def (inc 1) \2
+  def (+ 1 1) \2
 
   def (U32: \x inc (~ x)) \neg
   def (U32: \x U32: \y (+ x (neg y))) \-
 
-  def (U32: \x U32: \y [Bool] (0::== LT (cmp x y))) \<
-  def (U32: \x U32: \y [Bool] (0::== EQ (cmp x y))) \==
+  def (U32: \x U32: \y Symbol::== cmp::LT (cmp x y)) \U32::<
+  def (U32: \x U32: \y Symbol::== cmp::EQ (cmp x y)) \U32::==
+  def (U32: \x U32: \y not (U32::== x y)) \U32::!=
 
   # debug main
   def (\n n __builtin_debug n) \dbg
+  def (
+    def (Y \printstep \l \x
+      0::if l
+        (\_ seq (printstep (0::dec l) (0::first x))
+                (printstep (0::dec l) (0::second x)))
+        (\_ putc (0::if x (const '1') (const '0')))) \printstep
+    \x seq (putc '0') (putc 'b') (printstep _bitlenlog (_down x)) (putc newline)
+  ) \puts_bin
+
+  def (List{ 0 1 2 }) \tmt
+  def (map inc tmt) \t2
   seq
-  # (__builtin_debug True)
-  # (__builtin_debug False)
+
+  (puts_bin (head t2))
+  (puts_bin (head (tail t2)))
+  (puts_bin (head (tail (tail t2))))
+  (puts_bin (head (tail (tail (tail t2)))))
+  # (__builtin_debug '0')
+  # (__builtin_debug '1')
   # (__builtin_debug (not False))
   # seq
   # (__builtin_debug (0::first (_down 0)))
@@ -347,7 +408,10 @@
   # (__builtin_debug (0::first (_down 1)))
   # (__builtin_debug (0::second (_down 1)))
   # (dbg (cmp 1 0))
-  (if (< 1 0) (\_ dbg 0::1) (\_ dbg 0::2))
+  # (puts_bin 0u)
+  # (puts_bin 1u)
+  # (puts_bin 2u)
+  (if (U32::< 0 0) (\_ abort _) (\_ puts_bin 1))
   # seq (dbg 0) (dbg 1) (dbg 2) (dbg 3) (dbg 4)
   #   (dbg (head tl))
   #   (dbg (head (reverse tl)))
