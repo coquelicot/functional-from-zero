@@ -21,8 +21,8 @@ fn read_code_without_comment() -> String {
     for line in read_code().lines() {
         if !line.trim().starts_with('#') {
             code.push_str(&line);
-            code.push_str("\n")
         }
+        code.push_str("\n")
     }
     code
 }

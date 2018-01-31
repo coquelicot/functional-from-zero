@@ -1,6 +1,6 @@
 use std::{error, fmt};
 
-use super::tokenizer::{Token, TokenType};
+use super::tokenizer::{Location, Token, TokenType};
 
 #[derive(Debug)]
 pub enum Node<'a> {
@@ -10,31 +10,47 @@ pub enum Node<'a> {
 }
 
 #[derive(Debug)]
-pub enum Error {
+pub enum ErrorType {
     EOFReached,
     ExtraRightParen,
     MissingRightParen,
     MissingLambdaArg,
 }
 
+#[derive(Debug)]
+pub struct Error {
+    error_type: ErrorType,
+    location: Location,
+}
+
+impl Error {
+    fn new(error_type: ErrorType, token: &Token) -> Error {
+        Error {
+            error_type,
+            location: token.location,
+        }
+    }
+}
+
 impl error::Error for Error {
     fn description(&self) -> &str {
-        match *self {
-            Error::EOFReached => "unexpected EOF reached",
-            Error::ExtraRightParen => "extra )",
-            Error::MissingRightParen => "missing )",
-            Error::MissingLambdaArg => "missing argument for lambda",
+        match self.error_type {
+            ErrorType::EOFReached => "unexpected EOF reached",
+            ErrorType::ExtraRightParen => "extra )",
+            ErrorType::MissingRightParen => "missing )",
+            ErrorType::MissingLambdaArg => "missing argument for lambda",
         }
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::EOFReached => write!(f, "Unexpected EOF found when parsing expression."),
-            Error::ExtraRightParen => write!(f, "Extra ) in expression."),
-            Error::MissingRightParen => write!(f, "Missing ) in expression."),
-            Error::MissingLambdaArg => write!(f, "Missing argument for lambda in expression."),
+        write!(f, "At {}: ", self.location)?;
+        match self.error_type {
+            ErrorType::EOFReached => write!(f, "Unexpected EOF found when parsing expression."),
+            ErrorType::ExtraRightParen => write!(f, "Extra ) in expression."),
+            ErrorType::MissingRightParen => write!(f, "Missing ) in expression."),
+            ErrorType::MissingLambdaArg => write!(f, "Missing argument for lambda in expression."),
         }
     }
 }
@@ -50,9 +66,9 @@ fn parse_single<'a>(tokens: &'a [Token]) -> Result<(Node<'a>, &'a [Token<'a>]), 
                         return Ok((expression, tokens));
                     }
                 }
-                Err(Error::MissingRightParen)
+                Err(Error::new(ErrorType::MissingRightParen, &token))
             }
-            TokenType::RightParen => Err(Error::ExtraRightParen),
+            TokenType::RightParen => Err(Error::new(ErrorType::ExtraRightParen, &token)),
             TokenType::LambdaStart => {
                 if let Some((arg, tokens)) = tokens.split_first() {
                     if let TokenType::Identifier(name) = arg.token_type {
@@ -60,11 +76,18 @@ fn parse_single<'a>(tokens: &'a [Token]) -> Result<(Node<'a>, &'a [Token<'a>]), 
                         return Ok((Node::Lambda(name, Box::new(expression)), tokens));
                     }
                 }
-                Err(Error::MissingLambdaArg)
+                Err(Error::new(ErrorType::MissingLambdaArg, &token))
             }
         }
     } else {
-        Err(Error::EOFReached)
+        // TODO(Darkpi): Add EOF token.
+        Err(Error {
+            error_type: ErrorType::EOFReached,
+            location: Location {
+                line_no: 0,
+                column_no: 0,
+            },
+        })
     }
 }
 
@@ -88,8 +111,8 @@ fn parse_multi<'a>(tokens: &'a [Token]) -> Result<(Node<'a>, &'a [Token<'a>]), E
 
 pub fn parse<'a>(tokens: &'a [Token]) -> Result<Node<'a>, Error> {
     let (expression, extra) = parse_multi(tokens)?;
-    if !extra.is_empty() {
-        Err(Error::ExtraRightParen)
+    if let Some(token) = extra.first() {
+        Err(Error::new(ErrorType::ExtraRightParen, &token))
     } else {
         Ok(expression)
     }
