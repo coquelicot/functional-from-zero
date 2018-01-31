@@ -14,7 +14,7 @@ token_t tokenizer_t::pop() {
 token_t tokenizer_t::peak() {
     while (buf.empty())
         if (!__parse_more())
-            return token_t{token_t::END};
+            return token_t{token_t::END, ""};
     return buf.front();
 }
 

@@ -21,11 +21,11 @@ struct apply_node_t : public node_t {
     virtual void print(int depth);
 };
 
-struct ref_node_t : public node_t {
+struct term_node_t : public node_t {
 
     std::string ident;
 
-    ref_node_t(std::string &_ident);
+    term_node_t(std::string &_ident);
     virtual void print(int depth);
 };
 
