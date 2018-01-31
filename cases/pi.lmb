@@ -1,60 +1,235 @@
-(\define (
+(\def (
   # prelude
-  define (\x x) \id
-  define (\g \f \x (g (f x))) \.
-  define (\f (\x x x) (\x \u f (x x) u)) \Y
+  def (\x x) \id
+  def (\g \f \x (g (f x))) \.
+  def (\f (\x x x) (\x \u f (x x) u)) \Y
+  def (\x (\_ x)) \const
+  def (\f \x \y f y x) \flip
 
   # pair
-  define (\x \y \f f x y) \pair
-  define (\p p (\x \y x)) \first
-  define (\p p (\x \y y)) \second
+  def (\x \y \f f x y) \pair
+  def (\p p (\x \y x)) \first
+  def (\p p (\x \y y)) \second
+
+  # abort (by stack overflow :P)
+  def (Y \f \x (pair x (f x))) \abort
+
+  # placeholder
+  def abort \_
 
   # numbers
-  define (\f id) \0
-  define (\n \f . f (n f)) \inc
-  # TODO define (\x x) \dec
-  define (inc 0) \1
+  def (\f id) \0
+  def (\n \f . f (n f)) \inc
+  def (\n first (n (\p pair (second p) (inc (second p))) (pair 0 0))) \dec
+  def (inc 0) \1
 
   # true, false, if
-  define 1 \True
-  define 0 \False
-  define (\cond \t \f cond (\_ t) f id) \if
-  define (\b if b False True) \not
-
-  # addition / subtraction / mutiplication
-  define (\m \n m inc n) \+
-  # define (\m \n n dec m) \-
-  define (\m \n m (+ n) 0) \*
+  def 1 \True
+  def 0 \False
+  def (\cond \t \f cond (const t) f id) \if
+  def (\b if b (const False) (const True)) \not
+  def (\a \b if a (const (if b (const True) (const False))) (const False)) \&&
+  def (\a \b if a (const True) (const (if b (const True) (const False)))) \||
 
   # list
-  define (pair 1 0) \[]
-  define (\x \y pair 0 (pair x y)) \:
-  define (first) \null
-  define (. first second) \head
-  define (. second second) \tail
-  define (Y \map \f \xs
-          if (null xs)
+  def (pair True _) \[]
+  def (\x \y pair False (pair x y)) \:
+  def (first) \null
+  def (. first second) \head
+  def (. second second) \tail
+  def (
+    def (Y \f \acc \l
+           if (null l)
+              (\_ acc)
+              (\_ f (: (head l) acc) (tail l))) \f
+    f []) \reverse
+  def (Y \map \f \xs
+         if (null xs)
             (\_ [])
             (\_ (: (f (head xs)) (map f (tail xs))))) \map
-  define (Y \filter \f \xs
-          if (null xs)
+  def (Y \filter \f \xs
+         if (null xs)
             (\_ [])
-            (\_ define (head xs) \h
-                define (tail xs) \t
+            (\_ def (head xs) \h
+                def (tail xs) \t
+                if (f h) (: h (filter f t)) t)) \filter
+  def (Y \!! \xs \idx
+         if (null xs)
+            abort
+            (\_ if idx
+                (\_ !! (tail xs) (dec idx))
+                (\_ head xs))) \!!
+
+  # addition / subtraction / mutiplication
+  def (\m m inc) \+
+  def (\m \n n dec m) \-
+  def . \*
+  def (\m \n n m) \**
+
+  # comparison
+  def (\n \m if (- m n) (const True) (const False)) \<
+  def (\n \m not (|| (< n m) (< m n))) \==
+  def (flip <) \>
+  def (\n \m not (< n m)) \>=
+  def (flip >=) \<=
+  def (\n \m || (< n m) (> n m)) \!=
+
+  # division / modulo
+  def (Y \/ \m \n if (< m n) (const 0) (\_ inc (/ (- m n) n))) \/
+  def (\m \n (- m (* (/ m n) n))) \%
+
+  # small numbers
+  def (inc 1) \2
+  def (inc 2) \3
+  def (inc 3) \4
+  def (inc 4) \5
+  def (inc 5) \6
+  def (* 2 4) \8
+
+  # chars
+  def (* 2 8) \16
+  def (* 2 16) \32
+  def (* 2 32) \64
+  def (+ 32 64) \96
+  def 32 \space
+  def (inc 64) \'A' def (inc 'A') \'B' def (inc 'B') \'C' def (inc 'C') \'D' def (inc 'D') \'E'
+  def (inc 'E') \'F' def (inc 'F') \'G' def (inc 'G') \'H' def (inc 'H') \'I' def (inc 'I') \'J'
+  def (inc 'J') \'K' def (inc 'K') \'L' def (inc 'L') \'M' def (inc 'M') \'N' def (inc 'N') \'O'
+  def (inc 'O') \'P' def (inc 'P') \'Q' def (inc 'Q') \'R' def (inc 'R') \'S' def (inc 'S') \'T'
+  def (inc 'T') \'U' def (inc 'U') \'V' def (inc 'V') \'W' def (inc 'W') \'X' def (inc 'X') \'Y'
+  def (inc 'Y') \'Z'
+  def (* 4 (+ 5 6)) \','
+  def (+ 2 ',') \'.'
+  def (inc 96) \'a' def (inc 'a') \'b' def (inc 'b') \'c' def (inc 'c') \'d' def (inc 'd') \'e'
+  def (inc 'e') \'f' def (inc 'f') \'g' def (inc 'g') \'h' def (inc 'h') \'i' def (inc 'i') \'j'
+  def (inc 'j') \'k' def (inc 'k') \'l' def (inc 'l') \'m' def (inc 'm') \'n' def (inc 'n') \'o'
+  def (inc 'o') \'p' def (inc 'p') \'q' def (inc 'q') \'r' def (inc 'r') \'s' def (inc 's') \'t'
+  def (inc 't') \'u' def (inc 'u') \'v' def (inc 'v') \'w' def (inc 'w') \'x' def (inc 'x') \'y'
+  def (inc 'y') \'z'
+
+  def (
+    def (Y \f \acc \c if c (\_ f (: c acc)) (\_ reverse acc)) \f
+    f []
+  ) \<<EOS
+  def 0 \EOS
+
+  # for debug, world 0 panic.
+  def (Y \seq \f seq) \seq
+  def (\c if c __builtin_p1 __builtin_p0) \putb
+  def (\c
+    def (Y \f \c \i if i (\_ seq (f (/ c 2) (dec i)) (putb (% c 2))) id) \f
+    f c 8
+  ) \putc
+  def (
+    Y \panic \xs (const panic) (map putc xs)
+  ) \panic
+
+  # Old things of world 0
+  def pair \0::pair
+  def first \0::first
+  def second \0::second
+  def True \0::True
+  def False \0::False
+  def if \0::if
+  def not \0::not
+  def && \0::&&
+  def || \0::||
+
+  # types!
+  def 0 \Pair
+  def 1 \Bool
+  def 2 \List
+  def (
+    : (<<EOS 'P' 'a' 'i' 'r' EOS) (
+    : (<<EOS 'B' 'o' 'o' 'l' EOS) (
+    : (<<EOS 'L' 'i' 's' 't' EOS) (
+    [])))) \_type_table
+  def first \typeof
+  def (!! _type_table) \typename
+
+  # type check messages
+  def (<<EOS 'E' 'x' 'p' 'e' 'c' 't' space 't' 'y' 'p' 'e' space EOS) \"Expect_type_"
+  def (<<EOS ',' space 'b' 'u' 't' space 'g' 'o' 't' space EOS) \",_but_got_"
+  def (<<EOS '.' EOS) \"."
+
+  # Error messages
+  def (<<EOS 'h' 'e' 'a' 'd' EOS) \"head"
+  def (<<EOS 't' 'a' 'i' 'l' EOS) \"tail"
+  def (<<EOS space 'c' 'a' 'l' 'l' 'e' 'd' space 'o' 'n' space 'e' 'm' 'p' 't' 'y' space 'l' 'i' 's' 't' EOS) \"_called_on_empty_list"
+
+  # dynamic type check
+  def (\t \func \arg
+    def (typeof arg) \arg_t
+    if (== arg_t t)
+      (\_ func arg)
+      (\_ panic "Expect_type_" (typename t) ",_but_got_" (typename arg_t) "." (abort _))
+  ) \_check_arg_type
+
+  def (_check_arg_type Bool) \Bool:
+  def (_check_arg_type Pair) \Pair:
+  def (_check_arg_type List) \List:
+
+  # world 0 -> world 1 converter.
+  def second \_down
+  def pair \_with_type
+  def (\t \f \x _with_type t (f x)) \_up_return
+  def (\t1 \f _check_arg_type t1 \x f (_down x)) \_up1
+  def (\t1 \t2 \f _check_arg_type t1 \x _check_arg_type t2 \y f (_down x) (_down y)) \_up2
+
+  # Update world 0: pair
+  def (\x \y _with_type Pair (pair x y)) \pair
+  def (_up1 Pair first) \first
+  def (_up1 Pair second) \second
+
+  # TODO: numbers
+
+  # Update world 0: bool
+  def (_with_type Bool True) \True
+  def (_with_type Bool False) \False
+  def (_up1 Bool if) \if
+  def (_up_return Bool (_up1 Bool not)) \not
+  def (_up_return Bool (_up2 Bool Bool ||)) \||
+  def (_up_return Bool (_up2 Bool Bool &&)) \&&
+
+  # Reconstructing world 1 list.
+  # ListRaw: (0::pair (1::bool) (0::pair item ListRaw))
+  # List: _with_type List ListRaw
+  def (_with_type List (0::pair True _)) \[]
+  def (\x List: \y _with_type List (0::pair False (0::pair x (_down y)))) \:
+  def (List: \xs 0::first (_down xs)) \null
+  def (List: \xs
+         if (null xs)
+            (\_ panic "head" "_called_on_empty_list" (abort _))
+            (\_ 0::first (0::second (_down xs)))) \head
+  def (List: \xs
+         if (null xs)
+            (\_ panic "tail" "_called_on_empty_list" (abort _))
+            (\_ _with_type List (0::second (0::second (_down xs))))) \tail
+  def (
+    def (Y \f \acc \l
+           if (null l)
+              (\_ acc)
+              (\_ f (: (head l) acc) (tail l))) \f
+    List: \xs f [] xs) \reverse
+  def (Y \map \f List: \xs
+         if (null xs)
+            (\_ [])
+            (\_ (: (f (head xs)) (map f (tail xs))))) \map
+  def (Y \filter \f List: \xs
+         if (null xs)
+            (\_ [])
+            (\_ def (head xs) \h
+                def (tail xs) \t
                 if (f h) (: h (filter f t)) t)) \filter
 
-  define (inc 1) \2
-  define (inc 2) \3
-  define (inc 3) \4
-
-  define (Y \zz \f zz) \zz
-
   # debug main
-  define (\n n __builtin_debug n) \debug_n
-  define (: 1 (: 2 (: 3 []))) \tl
-  define (map inc tl) \tl2
-  if True
-    (\_ zz (debug_n (head tl2)) (debug_n (+ 1 1)))
-    (\_ debug_n 4)
-  # ((Y \f \x f (dd x)) id)
+  def (\n n __builtin_debug n) \dbg
+  seq
+  # (__builtin_debug True)
+  # (__builtin_debug False)
+  # (__builtin_debug (not False))
+  (if (not (null (: True []))) (\_ dbg 1) (\_ dbg 2))
+  # seq (dbg 0) (dbg 1) (dbg 2) (dbg 3) (dbg 4)
+  #   (dbg (head tl))
+  #   (dbg (head (reverse tl)))
 )) \x \y y x
