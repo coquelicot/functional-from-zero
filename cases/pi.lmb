@@ -30,6 +30,7 @@
   def (\b if b (const False) (const True)) \not
   def (\a \b if a (const (if b (const True) (const False))) (const False)) \&&
   def (\a \b if a (const True) (const (if b (const True) (const False)))) \||
+  def (\a \b if a (const (not b)) (const b)) \^
 
   # list
   def (pair True _) \[]
@@ -47,12 +48,6 @@
          if (null xs)
             (\_ [])
             (\_ (: (f (head xs)) (map f (tail xs))))) \map
-  def (Y \filter \f \xs
-         if (null xs)
-            (\_ [])
-            (\_ def (head xs) \h
-                def (tail xs) \t
-                if (f h) (: h (filter f t)) t)) \filter
   def (Y \!! \xs \idx
          if (null xs)
             abort
@@ -89,9 +84,12 @@
   # chars
   def (* 2 8) \16
   def (* 2 16) \32
+  def (+ 16 32) \48
   def (* 2 32) \64
   def (+ 32 64) \96
   def 32 \space
+  def 48 \'0' def (inc '0') \'1' def (inc '1') \'2' def (inc '2') \'3' def (inc '3') \'4'
+  def (inc '4') \'5' def (inc '5') \'6' def (inc '6') \'7' def (inc '7') \'8' def (inc '8') \'9'
   def (inc 64) \'A' def (inc 'A') \'B' def (inc 'B') \'C' def (inc 'C') \'D' def (inc 'D') \'E'
   def (inc 'E') \'F' def (inc 'F') \'G' def (inc 'G') \'H' def (inc 'H') \'I' def (inc 'I') \'J'
   def (inc 'J') \'K' def (inc 'K') \'L' def (inc 'L') \'M' def (inc 'M') \'N' def (inc 'N') \'O'
@@ -134,16 +132,33 @@
   def not \0::not
   def && \0::&&
   def || \0::||
+  def 0 \0::0
+  def 1 \0::1
+  def 2 \0::2
+  def 5 \0::5
+  def dec \0::dec
+  def inc \0::inc
+  def + \0::+
+  def - \0::-
+  def / \0::/
+  def ^ \0::^
+  def > \0::>
+  def < \0::<
+  def : \0:::
+  def [] \0::[]
+  def == \0::==
 
   # types!
   def 0 \Pair
   def 1 \Bool
   def 2 \List
+  def 3 \U32
   def (
     : (<<EOS 'P' 'a' 'i' 'r' EOS) (
     : (<<EOS 'B' 'o' 'o' 'l' EOS) (
     : (<<EOS 'L' 'i' 's' 't' EOS) (
-    [])))) \_type_table
+    : (<<EOS 'U' '3' '2' EOS) (
+    []))))) \_type_table
   def first \typeof
   def (!! _type_table) \typename
 
@@ -168,6 +183,7 @@
   def (_check_arg_type Bool) \Bool:
   def (_check_arg_type Pair) \Pair:
   def (_check_arg_type List) \List:
+  def (_check_arg_type U32) \U32:
 
   # world 0 -> world 1 converter.
   def second \_down
@@ -175,17 +191,21 @@
   def (\t \f \x _with_type t (f x)) \_up_return
   def (\t1 \f _check_arg_type t1 \x f (_down x)) \_up1
   def (\t1 \t2 \f _check_arg_type t1 \x _check_arg_type t2 \y f (_down x) (_down y)) \_up2
+  def (_with_type Bool) \[Bool]
+  def (_with_type Pair) \[Pair]
+  def (_with_type List) \[List]
+  def (_with_type U32) \[U32]
 
   # Update world 0: pair
-  def (\x \y _with_type Pair (pair x y)) \pair
+  def (\x \y [Pair] (pair x y)) \pair
   def (_up1 Pair first) \first
   def (_up1 Pair second) \second
 
   # TODO: numbers
 
   # Update world 0: bool
-  def (_with_type Bool True) \True
-  def (_with_type Bool False) \False
+  def ([Bool] 0::True) \True
+  def ([Bool] 0::False) \False
   def (_up1 Bool if) \if
   def (_up_return Bool (_up1 Bool not)) \not
   def (_up_return Bool (_up2 Bool Bool ||)) \||
@@ -194,8 +214,8 @@
   # Reconstructing world 1 list.
   # ListRaw: (0::pair (1::bool) (0::pair item ListRaw))
   # List: _with_type List ListRaw
-  def (_with_type List (0::pair True _)) \[]
-  def (\x List: \y _with_type List (0::pair False (0::pair x (_down y)))) \:
+  def ([List] (0::pair True _)) \[]
+  def (\x List: \y [List] (0::pair False (0::pair x (_down y)))) \:
   def (List: \xs 0::first (_down xs)) \null
   def (List: \xs
          if (null xs)
@@ -222,13 +242,112 @@
                 def (tail xs) \t
                 if (f h) (: h (filter f t)) t)) \filter
 
+  # u32
+  def 0::5 \_bitlenlog
+  def (
+    def (Y \incstep \l \x
+      0::if l
+        (\_ def (0::first x) \x0
+            def (0::second x) \x1
+            def (0::dec l) \nl
+            def (incstep nl x1) \s1
+            0::if (0::first s1)
+                  (\_ def (incstep nl x0) \s0
+                      0::pair (0::first s0)
+                              (0::pair (0::second s0) (0::second s1)))
+                  (\_ 0::pair 0::0
+                              (0::pair x0 (0::second s1))))
+        (\_ (0::pair x (0::not x)))) \incstep
+    U32: \x [U32] (0::second (incstep _bitlenlog (_down x)))
+  ) \inc
+
+  def (
+    def (Y \addstep \l \c \x \y
+      0::if l
+        (\_ def (0::first x) \x0
+            def (0::second x) \x1
+            def (0::first y) \y0
+            def (0::second y) \y1
+            def (0::dec l) \nl
+            def (addstep nl c x1 y1) \s1
+            def (addstep nl (0::first s1) x0 y0) \s0
+            (0::pair (0::first s0)
+                     (0::pair (0::second s0) (0::second s1))))
+        (\_ (0::pair (0::if (0::> (0::+ c (0::+ x y)) 0::1)
+                         (const 0::1)
+                         (const 0::0))
+                     (0::^ c (0::^ x y))))) \addstep
+    U32: \x U32: \y
+      [U32] (0::second (addstep _bitlenlog 0::0 (_down x) (_down y)))
+  ) \+
+
+  def (
+    def (Y \~step \l \x
+      0::if l
+        (\_ def (0::first x) \x0
+            def (0::second x) \x1
+            def (0::dec l) \nl
+            (0::pair (~step nl x0) (~step nl x1)))
+        (\_ 0::not x)) \~step
+    U32 \x [U32] (~step _bitlenlog (_down x))
+  ) \~
+
+  # TODO(Darkpi): Symbol type.
+  def 0::2 \LT
+  def 0::1 \GT
+  def 0::0 \EQ
+
+  def (
+    def (Y \cmpstep \l \x \y
+      0::if l
+        (\_ def (0::first x) \x0
+            def (0::second x) \x1
+            def (0::first y) \y0
+            def (0::second y) \y1
+            def (0::dec l) \nl
+            def (cmpstep nl x0 y0) \s0
+            0::if s0 (const s0)
+                     (\_ cmpstep nl x1 y1))
+        (\_ 0::if (0::< x y)
+                  (const LT)
+                  (\_ 0::if (0::< y x)
+                            (const GT)
+                            (const EQ)))) \cmpstep
+    U32: \x U32: \y
+      (cmpstep _bitlenlog (_down x) (_down y))
+  ) \cmp
+
+  def (
+    def (Y \0step \l
+      0::if l
+         (\_ def (0step (dec l)) \v
+             0::pair v v)
+         (const 0::0)) \0step
+    [U32] (0step _bitlenlog)
+  ) \0
+
+  def (inc 0) \1
+  def (inc 1) \2
+
+  def (U32: \x inc (~ x)) \neg
+  def (U32: \x U32: \y (+ x (neg y))) \-
+
+  def (U32: \x U32: \y [Bool] (0::== LT (cmp x y))) \<
+  def (U32: \x U32: \y [Bool] (0::== EQ (cmp x y))) \==
+
   # debug main
   def (\n n __builtin_debug n) \dbg
   seq
   # (__builtin_debug True)
   # (__builtin_debug False)
   # (__builtin_debug (not False))
-  (if (not (null (: True []))) (\_ dbg 1) (\_ dbg 2))
+  # seq
+  # (__builtin_debug (0::first (_down 0)))
+  # (__builtin_debug (0::second (_down 0)))
+  # (__builtin_debug (0::first (_down 1)))
+  # (__builtin_debug (0::second (_down 1)))
+  # (dbg (cmp 1 0))
+  (if (< 1 0) (\_ dbg 0::1) (\_ dbg 0::2))
   # seq (dbg 0) (dbg 1) (dbg 2) (dbg 3) (dbg 4)
   #   (dbg (head tl))
   #   (dbg (head (reverse tl)))
