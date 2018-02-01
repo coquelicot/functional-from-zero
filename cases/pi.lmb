@@ -173,7 +173,7 @@
     : (<<EOS 'U' '3' '2' EOS) (
     : (<<EOS 'I' 'O' EOS) (
     []))))))) \_type_table
-  def first \typeof
+  def (\v v first) \typeof
   def (!! _type_table) \typename
 
   # type check messages
@@ -206,8 +206,10 @@
   def (_check_arg_type IO) \IO:
 
   # world 0 -> world 1 converter.
-  def second \_down
-  def pair \_with_type
+  def (\v v second) \_down
+  # def (\x \f f x) \_fix_arg
+  def def \_fixed_arg
+  def (\t \v _fixed_arg (pair t v)) \_with_type
   def (\t \f \x _with_type t (f x)) \_up_return
   def (\t1 \f _check_arg_type t1 \x f (_down x)) \_up1
   def (\t1 \t2 \f _check_arg_type t1 \x _check_arg_type t2 \y f (_down x) (_down y)) \_up2
@@ -218,7 +220,10 @@
   def (_with_type U32) \[U32]
   def (_with_type IO) \[IO]
 
-  def (\x \c [Bool] (0::== (typeof x) c)) \instanceof
+  def (\f \rx f (_fixed_arg rx)) \infixify
+
+  def (\x \c [Bool] (0::== (typeof x) c)) \f::instanceof
+  def (infixify f::instanceof) \instanceof
 
   # Update world 0: pair
   def (\x \y [Pair] (pair x y)) \pair
@@ -232,8 +237,10 @@
   def ([Bool] 0::False) \False
   def (_up1 Bool if) \if
   def (_up_return Bool (_up1 Bool not)) \not
-  def (_up_return Bool (_up2 Bool Bool ||)) \||
-  def (_up_return Bool (_up2 Bool Bool &&)) \&&
+  def (_up_return Bool (_up2 Bool Bool ||)) \f::||
+  def (infixify f::||) \||
+  def (_up_return Bool (_up2 Bool Bool &&)) \f::&&
+  def (infixify f::&&) \&&
 
   # Symbol type.
   # TODO(Darkpi): Can reuse different type if needed.
@@ -243,14 +250,18 @@
   def ([Symbol] 0::3) \{
   def ([Symbol] 0::4) \}
 
-  def (Symbol: \x Symbol: \y [Bool] (0::== (_down x) (_down y))) \Symbol::==
-  def (Symbol: \x Symbol: \y not (Symbol::== x y)) \Symbol::!=
+  def (Symbol: \x Symbol: \y [Bool] (0::== (_down x) (_down y))) \f::Symbol::==
+  def (infixify f::Symbol::==) \Symbol::==
+
+  def (Symbol: \x Symbol: \y not (x Symbol::== y)) \f::Symbol::!=
+  def (infixify f::Symbol::!=) \Symbol::!=
 
   # Reconstructing world 1 list.
   # ListRaw: (0::pair (1::bool) (0::pair item ListRaw))
   # List: _with_type List ListRaw
   def ([List] (0::pair True _)) \[]
-  def (\x List: \y [List] (0::pair False (0::pair x (_down y)))) \:
+  def (\x List: \y [List] (0::pair False (0::pair x (_down y)))) \f:::
+  def (infixify f:::) \:
   def (List: \xs 0::first (_down xs)) \null
   def (List: \xs
          if (null xs)
@@ -264,29 +275,29 @@
     def (Y \f \acc \l
            if (null l)
               (\_ acc)
-              (\_ f (: (head l) acc) (tail l))) \f
+              (\_ f ((head l) : acc) (tail l))) \f
     List: \xs f [] xs) \reverse
   def (Y \map \f List: \xs
          if (null xs)
             (\_ [])
-            (\_ (: (f (head xs)) (map f (tail xs))))) \map
+            (\_ ((f (head xs)) : (map f (tail xs))))) \map
   def (Y \filter \f List: \xs
          if (null xs)
             (\_ [])
             (\_ def (head xs) \h
                 def (tail xs) \t
-                if (f h) (: h (filter f t)) t)) \filter
+                if (f h) (h : (filter f t)) t)) \filter
 
   # f: [a] -> b, a with type and not Symbol.
   # blockify f { a a a a a a } -> b
   def (\f
     def (Y \iter \acc \x
-      if (instanceof x Symbol)
-         (\_ if (Symbol::== x })
+      if (x instanceof Symbol)
+         (\_ if (x Symbol::== })
                 (\_ f (reverse acc))
                 (\_ panic "Syntax_error_expect_" "}" abort))
-         (\_ iter (: x acc))) \iter
-    Symbol: \x if (Symbol::== x {)
+         (\_ iter (x : acc))) \iter
+    Symbol: \x if (x Symbol::== {)
                   (\_ iter [])
                   (\_ panic "Syntax_error_expect_" "{" abort)) \blockify
 
@@ -329,7 +340,8 @@
                      (0::^ c (0::^ x y))))) \addstep
     U32: \x U32: \y
       [U32] (0::second (addstep _bitlenlog 0::0 (_down x) (_down y)))
-  ) \+
+  ) \f::+
+  def (infixify f::+) \+
 
   def (
     def (Y \~step \l \x
@@ -351,7 +363,7 @@
             def (0::second y) \y1
             def (0::dec l) \nl
             def (cmpstep nl x0 y0) \s0
-            if (Symbol::!= s0 cmp::EQ)
+            if (s0 Symbol::!= cmp::EQ)
                (const s0)
                \_ cmpstep nl x1 y1)
         (\_ 0::if (0::< x y)
@@ -361,7 +373,8 @@
                             (const cmp::EQ)))) \cmpstep
     U32: \x U32: \y
       (cmpstep _bitlenlog (_down x) (_down y))
-  ) \cmp
+  ) \f::cmp
+  def (infixify f::cmp) \cmp
 
   def (Y \_0step \l
     0::if l
@@ -371,14 +384,25 @@
   def ([U32] (_0step _bitlenlog)) \0
 
   def (inc 0) \1
-  def (+ 1 1) \2
+  def (inc 1) \2
+  def (inc 2) \3
+  def (inc 3) \4
+  def (inc 4) \5
+  def (inc 5) \6
+  def (inc 6) \7
+  def (inc 7) \8
+  def (inc 8) \9
 
   def (U32: \x inc (~ x)) \neg
-  def (U32: \x U32: \y (+ x (neg y))) \-
+  def (U32: \x U32: \y (x + (neg y))) \f::-
+  def (infixify f::-) \-
 
-  def (U32: \x U32: \y Symbol::== cmp::LT (cmp x y)) \U32::<
-  def (U32: \x U32: \y Symbol::== cmp::EQ (cmp x y)) \U32::==
-  def (U32: \x U32: \y not (U32::== x y)) \U32::!=
+  def (U32: \x U32: \y (cmp x y) Symbol::== cmp::LT) \f::U32::<
+  def (infixify f::U32::<) \U32::<
+  def (U32: \x U32: \y (cmp x y) Symbol::== cmp::EQ) \f::U32::==
+  def (infixify f::U32::==) \U32::==
+  def (U32: \x U32: \y not (x U32::== y)) \f::U32::!=
+  def (infixify f::U32::!=) \U32::!=
 
   # debug main
   def (\n n __builtin_debug n) \dbg
@@ -390,29 +414,22 @@
         (\_ putc (0::if x (const '1') (const '0')))) \printstep
     \x seq (putc '0') (putc 'b') (printstep _bitlenlog (_down x)) (putc newline)
   ) \puts_bin
+  def (
+    Y \puts_list \l
+      if (null l)
+         (\_ _)
+         (\_ seq (puts_bin (head l)) (puts_list (tail l)))
+  ) \puts_list
 
-  def (List{ 0 1 2 }) \tmt
-  def (map inc tmt) \t2
-  seq
 
-  (puts_bin (head t2))
-  (puts_bin (head (tail t2)))
-  (puts_bin (head (tail (tail t2))))
-  (puts_bin (head (tail (tail (tail t2)))))
-  # (__builtin_debug '0')
-  # (__builtin_debug '1')
-  # (__builtin_debug (not False))
-  # seq
-  # (__builtin_debug (0::first (_down 0)))
-  # (__builtin_debug (0::second (_down 0)))
-  # (__builtin_debug (0::first (_down 1)))
-  # (__builtin_debug (0::second (_down 1)))
-  # (dbg (cmp 1 0))
-  # (puts_bin 0u)
-  # (puts_bin 1u)
-  # (puts_bin 2u)
-  (if (U32::< 0 0) (\_ abort _) (\_ puts_bin 1))
-  # seq (dbg 0) (dbg 1) (dbg 2) (dbg 3) (dbg 4)
-  #   (dbg (head tl))
-  #   (dbg (head (reverse tl)))
+
+
+
+
+
+
+  # debug main
+
+  def (map (\x x + x) (List{ 5 0 2 1 6 })) \t2
+  (puts_list t2)
 )) \x \y y x
