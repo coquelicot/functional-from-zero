@@ -445,6 +445,14 @@
        (const [])
        (\_ a : (range (inc a) b))) \range
 
+  # TODO(Darkpi): This is sloooooooooow.
+  def (blockify (
+    \bs (def (len bs) \l
+         def (zip (reverse (range 0 l)) bs) \ps
+         foldl f::+ 0 (
+           map (\p if ((second p) U32::!= 0) (\_ p2 (first p)) (const 0))
+               ps)))) \0b
+
   # debug main
   def (
     def (Y \printstep \l \x
@@ -460,14 +468,6 @@
          (\_ _)
          (\_ seq (puts_bin (head l)) (puts_list (tail l)))
   ) \puts_list
-
-  # TODO(Darkpi): This is sloooooooooow.
-  def (blockify (
-    \bs (def (len bs) \l
-         def (zip (reverse (range 0 l)) bs) \ps
-         foldl f::+ 0 (
-           map (\p if ((second p) U32::!= 0) (\_ p2 (first p)) (const 0))
-               ps)))) \0b
 
   def (map (\x x + x) (List{ 5 0 2 1 6 })) \t2
   seq
