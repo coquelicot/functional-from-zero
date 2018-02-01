@@ -154,7 +154,7 @@ struct transpiler_t::impl_t {
         for (auto inst : lmb.body.insts) {
             stm << "    auto " << inst.retv << " = ";
             if (inst.type == code_inst_t::APPLY) {
-                stm << inst.func << "->exec(" << inst.arg << ");\n";
+                stm << "apply(" << inst.func << ", " << inst.arg << ");\n";
             } else {
                 stm << "std::make_shared<" << inst.lmb->name << ">(";
                 for (auto it = inst.envs.begin(); it != inst.envs.end(); it++) {
