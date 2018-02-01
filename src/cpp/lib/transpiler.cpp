@@ -123,7 +123,7 @@ struct transpiler_t::impl_t {
 
         // optimize
         __inline_temp_lmb(prog);
-        //__extract_static_lmb(prog);
+        __extract_static_lmb(prog); // this assumes that all temp lmb are inlined
 
         // output
         stm << "#include \"runtime.hpp\"\n";
@@ -227,7 +227,7 @@ struct transpiler_t::impl_t {
         try {
             apply_node_t &node = dynamic_cast<apply_node_t&>(*_node);
 
-            code_id_t func = next_global_id();
+            code_id_t func = local_id(next_local_id++);
             code_id_t arg = local_id(next_local_id++);
             __transpile(node.nd_fun, next_local_id, next_env_id, func, insts, envs, deps);
             __transpile(node.nd_arg, next_local_id, next_env_id, arg, insts, envs, deps);
@@ -274,8 +274,6 @@ struct transpiler_t::impl_t {
     void __extract_static_lmb(std::shared_ptr<code_lmb_t> lmb, std::map<code_id_t, std::shared_ptr<code_lmb_t>> alias={}, const std::map<code_id_t, code_id_t> &env_map={}) {
 
         std::vector<code_inst_t> ninsts;
-        std::map<code_id_t, std::map<code_id_t, std::shared_ptr<code_lmb_t>>> lmb_aliases;
-        std::map<code_id_t, std::map<code_id_t, code_id_t>> lmb_env_maps;
 
         for (auto &inst : lmb->body.insts) {
 
@@ -283,8 +281,8 @@ struct transpiler_t::impl_t {
 
                 // clean up params & build alias
                 std::vector<code_id_t> nenvs;
-                auto &lmb_alias = lmb_aliases[inst.retv];
-                auto &lmb_env_map = lmb_env_maps[inst.retv];
+                std::map<code_id_t, code_id_t> lmb_env_map;
+                std::map<code_id_t, std::shared_ptr<code_lmb_t>> lmb_alias;
                 for (int i = 0, j = 0; i < (int)inst.envs.size(); i++) {
                     if (alias.count(inst.envs[i])) {
                         lmb_alias[env_id(i)] = alias[inst.envs[i]];
@@ -308,28 +306,16 @@ struct transpiler_t::impl_t {
                     ninsts.push_back(inst);
                 }
 
+                // extract recursively no matter what
+                __extract_static_lmb(inst.lmb, lmb_alias, lmb_env_map);
+
                 continue;
             }
 
-            code_id_t orgi_func = inst.func;
             if (alias.count(inst.func))
                 inst.func = alias[inst.func]->obj;
             else if (env_map.count(inst.func))
                 inst.func = env_map.at(inst.func);
-
-            // we call a temp lmb, the arg may also be an alias
-            if (lmb_aliases.count(orgi_func)) {
-                if (alias.count(inst.arg)) {
-                    lmb_aliases[orgi_func][arg_id()] = alias[inst.arg];
-                    inst.arg = alias[inst.arg]->obj;
-                } else if (env_map.count(inst.arg)) {
-                    assert(false);
-                    inst.arg = env_map.at(inst.arg);
-                }
-                ninsts.push_back(inst);
-                continue;
-            }
-
             if (alias.count(inst.arg))
                 inst.arg = alias[inst.arg]->obj;
             else if (env_map.count(inst.arg))
@@ -337,14 +323,9 @@ struct transpiler_t::impl_t {
             ninsts.push_back(inst);
         }
 
-        for (auto &inst : lmb->body.insts)
-            if (inst.type == code_inst_t::LAMBDA)
-                __extract_static_lmb(inst.lmb, lmb_aliases[inst.retv], lmb_env_maps[inst.retv]);
-
+        lmb->body.insts = ninsts;
         if (alias.count(lmb->body.retv))
             lmb->body.retv = alias[lmb->body.retv]->obj;
-
-        lmb->body.insts = ninsts;
         for (auto &pair : alias)
             lmb->body.deps.insert(pair.second);
     }
