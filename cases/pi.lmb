@@ -1,4 +1,4 @@
-(\def (
+((\def (
   # prelude
   def (\x x) \id
   def (\g \f \x (g (f x))) \.
@@ -210,7 +210,6 @@
   # def (\x \f f x) \_fix_arg
   def def \_fixed_arg
   def (\t \v _fixed_arg (pair t v)) \_with_type
-  def (\t \f \x _with_type t (f x)) \_up_return
   def (\t1 \f _check_arg_type t1 \x f (_down x)) \_up1
   def (\t1 \t2 \f _check_arg_type t1 \x _check_arg_type t2 \y f (_down x) (_down y)) \_up2
   def (_with_type Bool) \[Bool]
@@ -229,17 +228,18 @@
   def (\x \y [Pair] (pair x y)) \pair
   def (_up1 Pair first) \first
   def (_up1 Pair second) \second
+  def (infixify pair) \,
 
   # TODO: numbers
 
   # Update world 0: bool
   def ([Bool] 0::True) \True
   def ([Bool] 0::False) \False
-  def (_up1 Bool if) \if
-  def (_up_return Bool (_up1 Bool not)) \not
-  def (_up_return Bool (_up2 Bool Bool ||)) \f::||
+  def (_up1 Bool 0::if) \if
+  def (\x [Bool] ((_up1 Bool 0::not) x)) \not
+  def (\x \y [Bool] ((_up2 Bool Bool 0::||) x y)) \f::||
   def (infixify f::||) \||
-  def (_up_return Bool (_up2 Bool Bool &&)) \f::&&
+  def (\x \y [Bool] ((_up2 Bool Bool 0::&&) x y)) \f::&&
   def (infixify f::&&) \&&
 
   # Symbol type.
@@ -279,14 +279,26 @@
     List: \xs f [] xs) \reverse
   def (Y \map \f List: \xs
          if (null xs)
-            (\_ [])
+            (const [])
             (\_ ((f (head xs)) : (map f (tail xs))))) \map
   def (Y \filter \f List: \xs
          if (null xs)
-            (\_ [])
+            (const [])
             (\_ def (head xs) \h
                 def (tail xs) \t
-                if (f h) (h : (filter f t)) t)) \filter
+                if (f h) (\_ h : (filter f t)) (\_ t))) \filter
+  def (Y \zip List: \xs List: \ys
+         if ((null xs) || (null ys))
+            (const [])
+            (\_ ((head xs) , (head ys)) : (zip (tail xs) (tail ys)))) \zip
+  def (Y \foldl \f \acc List: \xs
+         if (null xs)
+            (\_ acc)
+            (\_ foldl f (f acc (head xs)) (tail xs))) \foldl
+  def (Y \foldr \f \acc List: \xs
+         if (null xs)
+            (\_ acc)
+            (\_ f (head xs) (foldr f acc (tail xs)))) \foldr
 
   # f: [a] -> b, a with type and not Symbol.
   # blockify f { a a a a a a } -> b
@@ -351,7 +363,7 @@
             def (0::dec l) \nl
             (0::pair (~step nl x0) (~step nl x1)))
         (\_ 0::not x)) \~step
-    U32 \x [U32] (~step _bitlenlog (_down x))
+    U32: \x [U32] (~step _bitlenlog (_down x))
   ) \~
 
   def (
@@ -383,29 +395,57 @@
        (const 0::0)) \_0step
   def ([U32] (_0step _bitlenlog)) \0
 
-  def (inc 0) \1
-  def (inc 1) \2
-  def (inc 2) \3
-  def (inc 3) \4
-  def (inc 4) \5
-  def (inc 5) \6
-  def (inc 6) \7
-  def (inc 7) \8
-  def (inc 8) \9
+  def (inc 0) \1 def (inc 1) \2 def (inc 2) \3 def (inc 3) \4 def (inc 4) \5
+  def (inc 5) \6 def (inc 6) \7 def (inc 7) \8 def (inc 8) \9 def (inc 9) \10
+  def (inc 10) \11 def (inc 11) \12 def (inc 12) \13 def (inc 13) \14 def (inc 14) \15
+  def (inc 15) \16 def (inc 16) \17 def (inc 17) \18 def (inc 18) \19 def (inc 19) \20
+  def (inc 20) \21 def (inc 21) \22 def (inc 22) \23 def (inc 23) \24 def (inc 24) \25
+  def (inc 25) \26 def (inc 26) \27 def (inc 27) \28 def (inc 28) \29 def (inc 29) \30
+  def (inc 30) \31 def (inc 31) \32
+
 
   def (U32: \x inc (~ x)) \neg
   def (U32: \x U32: \y (x + (neg y))) \f::-
   def (infixify f::-) \-
+  def (U32: \x x - 1) \dec
 
-  def (U32: \x U32: \y (cmp x y) Symbol::== cmp::LT) \f::U32::<
+  def (U32: \x U32: \y (x cmp y) Symbol::== cmp::LT) \f::U32::<
   def (infixify f::U32::<) \U32::<
-  def (U32: \x U32: \y (cmp x y) Symbol::== cmp::EQ) \f::U32::==
+  def (U32: \x U32: \y not (x U32::< y)) \f::U32::>=
+  def (infixify f::U32::>=) \U32::>=
+  def (U32: \x U32: \y (x cmp y) Symbol::== cmp::EQ) \f::U32::==
   def (infixify f::U32::==) \U32::==
   def (U32: \x U32: \y not (x U32::== y)) \f::U32::!=
   def (infixify f::U32::!=) \U32::!=
 
+  def (0 U32::!=) \U32::to_bool
+
+  # splitAt
+  def (Y \splitAt U32: \idx List: \xs
+    if (idx U32::== 0)
+       (\_ ([] , xs))
+       (\_ (def (head xs) \h
+            def (tail xs) \t
+            def (splitAt (dec idx) t) \res
+            ((h : (first res)) , (second res))))) \splitAt
+  def (Y \len List: \xs
+    if (null xs)
+       (const 0)
+       (\_ inc (len (tail xs)))) \len
+
+  def (Y \p2 U32: \x
+    if (x U32::== 0)
+       (const 1)
+       (\_ def (p2 (dec x)) \v
+           v + v)) \p2
+
+  # a...b, or [] if a >= b
+  def (Y \range U32: \a U32: \b
+    if (a U32::>= b)
+       (const [])
+       (\_ a : (range (inc a) b))) \range
+
   # debug main
-  def (\n n __builtin_debug n) \dbg
   def (
     def (Y \printstep \l \x
       0::if l
@@ -421,15 +461,18 @@
          (\_ seq (puts_bin (head l)) (puts_list (tail l)))
   ) \puts_list
 
-
-
-
-
-
-
-
-  # debug main
+  # TODO(Darkpi): This is sloooooooooow.
+  def (blockify (
+    \bs (def (len bs) \l
+         def (zip (reverse (range 0 l)) bs) \ps
+         foldl f::+ 0 (
+           map (\p if ((second p) U32::!= 0) (\_ p2 (first p)) (const 0))
+               ps)))) \0b
 
   def (map (\x x + x) (List{ 5 0 2 1 6 })) \t2
-  (puts_list t2)
-)) \x \y y x
+  seq
+  # (puts_list t2)
+  # (if (f::U32::== 0 0) (\_ puts_list t2) (\_ abort _))
+  (puts_bin (0b { 1 1 0 0 0 1 0 0 0 0 1 0 1 0 0 0 }))
+  # (puts_bin (~ 2))
+)) \x \y y x)
