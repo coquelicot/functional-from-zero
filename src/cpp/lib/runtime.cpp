@@ -81,9 +81,9 @@ std::shared_ptr<lmb_t> apply(std::shared_ptr<lmb_t> a, std::shared_ptr<lmb_t> b)
 
     static std::map<std::pair<std::shared_ptr<lmb_t>, std::shared_ptr<lmb_t>>, std::shared_ptr<lmb_t>> caches;
 
-    //auto it = caches.find(std::make_pair(a, b));
-    //if (it != caches.end())
-    //    return it->second;
+    auto it = caches.find(std::make_pair(a, b));
+    if (it != caches.end())
+        return it->second;
 
     pures.push(true);
     std::shared_ptr<lmb_t> &&retv = a->exec(b);
