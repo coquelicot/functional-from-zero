@@ -157,6 +157,7 @@
   def : \0:::
   def [] \0::[]
   def == \0::==
+  def '0' \0::'0'
 
   # types!
   def 0 \Pair
@@ -189,6 +190,7 @@
   def (<<EOS 'S' 'y' 'n' 't' 'a' 'x' space 'e' 'r' 'r' 'o' 'r' space 'e' 'x' 'p' 'e' 'c' 't' space EOS) \"Syntax_error_expect_"
   def (<<EOS '{' EOS) \"{"
   def (<<EOS '}' EOS) \"}"
+  def (<<EOS 'D' 'i' 'v' 'i' 's' 'i' 'o' 'n' space 'b' 'y' space '0' EOS) \"Division_by_0"
 
   # dynamic type check
   def (\t \func \arg
@@ -307,16 +309,24 @@
       if (x instanceof Symbol)
          (\_ if (x Symbol::== })
                 (\_ f (reverse acc))
-                (\_ panic "Syntax_error_expect_" "}" abort))
+                (\_ panic "Syntax_error_expect_" "}" (abort _)))
          (\_ iter (x : acc))) \iter
     Symbol: \x if (x Symbol::== {)
                   (\_ iter [])
-                  (\_ panic "Syntax_error_expect_" "{" abort)) \blockify
+                  (\_ panic "Syntax_error_expect_" "{" (abort _))) \blockify
 
   def (blockify id {) \List{
 
   # u32
   def 0::5 \_bitlenlog
+
+  def (Y \_0step \l
+    0::if l
+       (\_ def (_0step (0::dec l)) \v
+           0::pair v v)
+       (const 0::0)) \_0step
+  def ([U32] (_0step _bitlenlog)) \0
+
   def (
     def (Y \incstep \l \x
       0::if l
@@ -331,29 +341,53 @@
                   (\_ 0::pair 0::0
                               (0::pair x0 (0::second s1))))
         (\_ (0::pair x (0::not x)))) \incstep
-    U32: \x [U32] (0::second (incstep _bitlenlog (_down x)))
-  ) \inc
+    U32: \x [U32] (0::second (incstep _bitlenlog (_down x)))) \inc
+
+  def (Y \+step \l \c \x \y
+    0::if l
+      (\_ def (0::first x) \x0
+          def (0::second x) \x1
+          def (0::first y) \y0
+          def (0::second y) \y1
+          def (0::dec l) \nl
+          def (+step nl c x1 y1) \s1
+          def (+step nl (0::first s1) x0 y0) \s0
+          (0::pair (0::first s0)
+                   (0::pair (0::second s0) (0::second s1))))
+      (\_ (0::pair (0::if (0::> (0::+ c (0::+ x y)) 0::1)
+                       (const 0::1)
+                       (const 0::0))
+                   (0::^ c (0::^ x y))))) \_+step
+  def (
+    U32: \x U32: \y
+      [U32] (0::second (_+step _bitlenlog 0::0 (_down x) (_down y)))) \f::+
+  def (infixify f::+) \+
 
   def (
-    def (Y \addstep \l \c \x \y
+    def (Y \*step \l \x \y
       0::if l
         (\_ def (0::first x) \x0
             def (0::second x) \x1
             def (0::first y) \y0
             def (0::second y) \y1
             def (0::dec l) \nl
-            def (addstep nl c x1 y1) \s1
-            def (addstep nl (0::first s1) x0 y0) \s0
-            (0::pair (0::first s0)
-                     (0::pair (0::second s0) (0::second s1))))
-        (\_ (0::pair (0::if (0::> (0::+ c (0::+ x y)) 0::1)
-                         (const 0::1)
-                         (const 0::0))
-                     (0::^ c (0::^ x y))))) \addstep
+            def (*step nl x0 y0) \m00
+            def (*step nl x1 y0) \m01
+            def (*step nl x0 y1) \m10
+            def (*step nl x1 y1) \m11
+            def (_0step l) \0l
+            def (_0step nl) \0nl
+            def (0::pair m00 0l) \m00
+            def (0::pair (0::pair 0nl (0::first m01)) (0::pair (0::second m01) 0nl)) \m01
+            def (0::pair (0::pair 0nl (0::first m10)) (0::pair (0::second m10) 0nl)) \m10
+            def (0::pair 0l m11) \m11
+            0::second (_+step (0::inc l) 0::0
+              (0::second (_+step (0::inc l) 0::0 m00 m01))
+              (0::second (_+step (0::inc l) 0::0 m10 m11))))
+        (\_ (0::pair 0::0 (0::&& x y)))) \*step
     U32: \x U32: \y
-      [U32] (0::second (addstep _bitlenlog 0::0 (_down x) (_down y)))
-  ) \f::+
-  def (infixify f::+) \+
+      [U32] (0::second (*step _bitlenlog (_down x) (_down y)))) \f::*
+  def (infixify f::*) \*
 
   def (
     def (Y \~step \l \x
@@ -363,8 +397,7 @@
             def (0::dec l) \nl
             (0::pair (~step nl x0) (~step nl x1)))
         (\_ 0::not x)) \~step
-    U32: \x [U32] (~step _bitlenlog (_down x))
-  ) \~
+    U32: \x [U32] (~step _bitlenlog (_down x))) \~
 
   def (
     def (Y \cmpstep \l \x \y
@@ -384,16 +417,8 @@
                             (const cmp::GT)
                             (const cmp::EQ)))) \cmpstep
     U32: \x U32: \y
-      (cmpstep _bitlenlog (_down x) (_down y))
-  ) \f::cmp
+      (cmpstep _bitlenlog (_down x) (_down y))) \f::cmp
   def (infixify f::cmp) \cmp
-
-  def (Y \_0step \l
-    0::if l
-       (\_ def (_0step (0::dec l)) \v
-           0::pair v v)
-       (const 0::0)) \_0step
-  def ([U32] (_0step _bitlenlog)) \0
 
   def (inc 0) \1 def (inc 1) \2 def (inc 2) \3 def (inc 3) \4 def (inc 4) \5
   def (inc 5) \6 def (inc 6) \7 def (inc 7) \8 def (inc 8) \9 def (inc 9) \10
@@ -433,46 +458,86 @@
        (const 0)
        (\_ inc (len (tail xs)))) \len
 
-  def (Y \p2 U32: \x
-    if (x U32::== 0)
-       (const 1)
-       (\_ def (p2 (dec x)) \v
-           v + v)) \p2
-
   # a...b, or [] if a >= b
   def (Y \range U32: \a U32: \b
     if (a U32::>= b)
        (const [])
        (\_ a : (range (inc a) b))) \range
 
-  # TODO(Darkpi): This is sloooooooooow.
-  def (blockify (
-    \bs (def (len bs) \l
-         def (zip (reverse (range 0 l)) bs) \ps
-         foldl f::+ 0 (
-           map (\p if ((second p) U32::!= 0) (\_ p2 (first p)) (const 0))
-               ps)))) \0b
+  def (Y \pow U32: \x U32: \y
+    if (y U32::== 0)
+       (const 1)
+       (\_ x * (pow x (dec y)))) \pow
+
+  def (\base \xs
+    def (len xs) \l
+    def (zip (reverse (range 0 l)) xs) \ps
+    foldl f::+ 0 (
+      map (\p (second p) * (pow base (first p))) ps)) \list_to_u32
+
+  def (
+    def (Y \step \l \x
+      0::if l
+        (\_ def (step (0::dec l) (0::first x)) \f1
+            ((if ((first f1) U32::== 0)
+                 (\_ def (step (0::dec l) (0::second x)) \f2
+                     if ((first f2) U32::== 0)
+                        (const 0)
+                        (\_ (first f2) + (second f2)))
+                 (const (first f1)))
+             , ((second f1) + (second f1))))
+        (\_ ((0::if x (const 1) (const 0)) , 1))) \step
+    U32: \x (first (step _bitlenlog (_down x))) - 1
+  ) \_first_1
+
+  # Finally division...
+  def (
+    def (Y \step \l \x \y
+      def (pow 2 l) \dig
+      def (y * dig) \yy
+      if (l U32::== 0)
+         (\_ if (x U32::>= yy) (\_ (dig , (x - yy))) (\_ (0 , x)))
+         (\_ if (x U32::>= yy)
+                (\_ def (step (dec l) (x - yy) y) \s
+                    ((dig + (first s)) , (second s)))
+                (\_ step (dec l) x y))) \step
+    U32: \x U32: \y
+      if (y U32::== 0)
+         (\_ panic "Division_by_0" (abort _))
+         (\_ step (_first_1 y) x y)) \divmod
+  def (infixify (U32: \x U32: \y first (divmod x y))) \/
+  def (infixify (U32: \x U32: \y second (divmod x y))) \%
+
+  # TODO(Darkpi): This is sloooooooooow. We at least should have a faster 0b ?
+  def (blockify (list_to_u32 2)) \0b
+  def (blockify (list_to_u32 10)) \0d
+
+  def (Y \to_w0 \x
+       if (x U32::== 0)
+          (const 0::0)
+          (\_ 0::inc (to_w0 (dec x)))) \U32::to_w0
+
+  def (
+    def (Y \p \x
+      if (x U32::== 0)
+         (id)
+         (\_ def (divmod x 10) \r
+             seq (p (first r)) (putc (0::+ 0::'0' (U32::to_w0 (second r)))))) \p
+    \x seq
+       (if (x U32::== 0) (\_ putc 0::'0') (\_ p x))
+       (putc newline)) \puts
 
   # debug main
-  def (
-    def (Y \printstep \l \x
-      0::if l
-        (\_ seq (printstep (0::dec l) (0::first x))
-                (printstep (0::dec l) (0::second x)))
-        (\_ putc (0::if x (const '1') (const '0')))) \printstep
-    \x seq (putc '0') (putc 'b') (printstep _bitlenlog (_down x)) (putc newline)
-  ) \puts_bin
   def (
     Y \puts_list \l
       if (null l)
          (\_ _)
-         (\_ seq (puts_bin (head l)) (puts_list (tail l)))
-  ) \puts_list
+         (\_ seq (puts (head l)) (puts_list (tail l)))) \puts_list
 
-  def (map (\x x + x) (List{ 5 0 2 1 6 })) \t2
+  # def (map (\x x + x) (List{ 5 0 2 1 6 })) \t2
   seq
   # (puts_list t2)
-  # (if (f::U32::== 0 0) (\_ puts_list t2) (\_ abort _))
-  (puts_bin (0b { 1 1 0 0 0 1 0 0 0 0 1 0 1 0 0 0 }))
-  # (puts_bin (~ 2))
+
+  (puts ((0d { 1 0 4 7 7 7 9 1 2 1 }) / (0d { 5 1 4 })))
+  (puts ((0d { 1 0 4 7 7 7 9 1 2 1 }) % (0d { 5 1 4 })))
 )) \x \y y x)
