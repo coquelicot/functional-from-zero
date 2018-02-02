@@ -13,11 +13,8 @@
 
 using namespace std;
 
+struct lmb_t;
 struct expr_t;
-struct lmb_t {
-    virtual shared_ptr<const lmb_t> exec(shared_ptr<const lmb_t> &&arg) const = 0;
-    virtual ~lmb_t() {}
-};
 
 using env_t = vector<shared_ptr<const lmb_t>>;
 struct shadow_env_t {
@@ -34,16 +31,19 @@ struct shadow_env_t {
     }
 };
 
-struct val_lmb_t : public lmb_t {
+struct lmb_t {
 
     int arg_idx;
     expr_t *body;
     const env_t env;
 
-    val_lmb_t(int _arg_idx, expr_t *_body, const env_t &&_env) :
-        arg_idx(_arg_idx), body(_body), env(_env) {}
+    lmb_t(lmb_t &&ref) :
+        arg_idx(ref.arg_idx), body(ref.body), env(std::move(ref.env)) {}
 
-    virtual shared_ptr<const lmb_t> exec(shared_ptr<const lmb_t> &&arg) const;
+    lmb_t(int _arg_idx, expr_t *_body, const env_t &&_env) :
+        arg_idx(_arg_idx), body(_body), env(std::move(_env)) {}
+
+    shared_ptr<const lmb_t> exec(shared_ptr<const lmb_t> &&arg) const;
 };
 
 struct expr_t {
@@ -58,7 +58,7 @@ struct lmb_expr_t : public expr_t {
     expr_t *body;
     static map<tuple<int, expr_t*, env_t>, shared_ptr<const lmb_t>> cache;
 
-    lmb_expr_t(int _arg_idx, vector<int> &_arg_map, expr_t *_body) :
+    lmb_expr_t(int _arg_idx, const vector<int> &_arg_map, expr_t *_body) :
         arg_idx(_arg_idx), arg_map(_arg_map), body(_body) {}
 
     virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
@@ -71,7 +71,7 @@ struct lmb_expr_t : public expr_t {
         if (it != cache.end())
             return it->second;
         else
-            return cache[key] = make_shared<val_lmb_t>(arg_idx, body, std::move(nenv));
+            return cache[key] = make_shared<lmb_t>(arg_idx, body, std::move(nenv));
     }
 
     static void clear_cache() {
@@ -114,9 +114,6 @@ struct apply_expr_t : public expr_t {
         return std::move(retv);
     }
 
-    shared_ptr<const lmb_t> apply(shared_ptr<const lmb_t> func, shared_ptr<const lmb_t> arg) {
-    }
-
     static void clear_cache() {
         cache.clear();
     }
@@ -135,7 +132,30 @@ struct ref_expr_t : public expr_t {
     }
 };
 
-shared_ptr<const lmb_t> val_lmb_t::exec(shared_ptr<const lmb_t> &&arg) const {
+void output(int bit);
+int input();
+
+struct builtin_p0_expr_t : public expr_t {
+    virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
+        output(0);
+        return env[0];
+    }
+};
+
+struct builtin_p1_expr_t : public expr_t {
+    virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
+        output(1);
+        return env[0];
+    }
+};
+
+struct builtin_g_expr_t : public expr_t {
+    virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
+        return env[input()];
+    }
+};
+
+shared_ptr<const lmb_t> lmb_t::exec(shared_ptr<const lmb_t> &&arg) const {
     return body->eval(shadow_env_t(env, arg_idx, std::move(arg)));
 }
 
@@ -349,30 +369,6 @@ int input() {
     return (val >> pos--) & 1;
 }
 
-struct native_lmb_t : public lmb_t {
-
-    using argv_t = env_t;
-    using func_t = function<shared_ptr<const lmb_t>(const argv_t&)>;
-
-    size_t args;
-    argv_t argv;
-    func_t func;
-
-    native_lmb_t(size_t _args, func_t _func, argv_t _argv=argv_t()) :
-        args(_args), argv(_argv), func(_func) {}
-
-    virtual shared_ptr<const lmb_t> exec(shared_ptr<const lmb_t> &&arg) const {
-        if (argv.size() == args) {
-            // arg is the "world" arg
-            return func(argv);
-        } else {
-            argv_t nargv = argv;
-            nargv.push_back(arg);
-            return make_shared<native_lmb_t>(args, func, nargv);
-        }
-    }
-};
-
 int main(int argc, char *args[]) {
 
     assert(argc > 1);
@@ -382,17 +378,9 @@ int main(int argc, char *args[]) {
     parser_t parser;
 
     map<string, shared_ptr<const lmb_t>> env;
-    env["__builtin_p0"] = make_shared<native_lmb_t>(0, [&env] (const native_lmb_t::argv_t &argv) {
-        output(0);
-        return env["__builtin_p0"];
-    });
-    env["__builtin_p1"] = make_shared<native_lmb_t>(0, [&env] (const native_lmb_t::argv_t &argv) {
-        output(1);
-        return env["__builtin_p1"];
-    });
-    env["__builtin_g"] = make_shared<native_lmb_t>(2, [] (const native_lmb_t::argv_t &argv) {
-        return argv[input()];
-    });
+    env["__builtin_p0"] = make_shared<lmb_t>(0, new builtin_p0_expr_t(), env_t{nullptr});
+    env["__builtin_p1"] = make_shared<lmb_t>(0, new builtin_p1_expr_t(), env_t{nullptr});
+    env["__builtin_g"] = make_shared<lmb_t>(0, new lmb_expr_t(1, {0, -1}, new lmb_expr_t(2, {0, 1, -1}, new builtin_g_expr_t())), env_t{nullptr});
 
     while (parser.run_once(toks, env));
 }
