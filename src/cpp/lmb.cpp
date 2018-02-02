@@ -186,10 +186,17 @@ struct tokenizer_t {
         do {
             if (!getline(stm, line))
                 return false;
-        } while (line.length() == 0 || line[0] == '#');
+        } while (line.length() == 0 || _is_comment(line));
 
         _parse(line);
         return true;
+    }
+
+    bool _is_comment(std::string &str) {
+        for (auto chr : str)
+            if (!isspace(chr))
+                return chr == '#';
+        return false;
     }
 
     void _parse(string &line) {
