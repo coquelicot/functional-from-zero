@@ -4,6 +4,7 @@
 #include <deque>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <memory>
 #include <utility>
 #include <tuple>
@@ -36,25 +37,41 @@ struct expr_t {
 
 struct lmb_t {
 
-    expr_t *body;
-    const env_t env;
+    static bool pure;
 
-    lmb_t(const lmb_t &ref) :
-        body(ref.body), env(ref.env) {}
+    const expr_t *body;
+    const env_t env;
+    mutable unordered_map<shared_ptr<const lmb_t>, shared_ptr<const lmb_t>> cache;
 
     lmb_t(expr_t *_body, const env_t &_env) :
         body(_body), env(_env) {}
 
     shared_ptr<const lmb_t> exec(const shared_ptr<const lmb_t> &arg) const {
-        return body->eval(shadow_env_t(arg, env));
+
+        auto it = cache.find(arg);
+        if (it != cache.end())
+            return it->second;
+
+        bool _pure = pure;
+        pure = true;
+        auto retv = body->eval(shadow_env_t(arg, env));
+
+        if (pure) {
+            pure = _pure;
+            return cache[arg] = retv;
+        } else {
+            pure = false;
+            return retv;
+        }
     }
 };
+bool lmb_t::pure = true;
 
 struct lmb_expr_t : public expr_t {
 
     expr_t *body;
     vector<int> arg_map;
-    static map<tuple<expr_t*, env_t>, shared_ptr<const lmb_t>> cache;
+    mutable map<env_t, shared_ptr<const lmb_t>> cache;
 
     lmb_expr_t(expr_t *_body, const vector<int> &_arg_map) :
         body(_body), arg_map(_arg_map) {}
@@ -65,24 +82,15 @@ struct lmb_expr_t : public expr_t {
         for (int i = 0; i < (int)arg_map.size(); i++)
             nenv[i] = env[arg_map[i]];
 
-        auto key = make_tuple(body, nenv);
-        auto it = cache.find(key);
+        auto it = cache.find(nenv);
         if (it != cache.end())
             return it->second;
         else
-            return cache[key] = make_shared<lmb_t>(body, nenv);
-    }
-
-    static void clear_cache() {
-        cache.clear();
+            return cache[nenv] = make_shared<lmb_t>(body, nenv);
     }
 };
-map<tuple<expr_t*, env_t>, shared_ptr<const lmb_t>> lmb_expr_t::cache;
 
 struct apply_expr_t : public expr_t {
-
-    static bool pure;
-    static map<pair<shared_ptr<const lmb_t>, shared_ptr<const lmb_t>>, shared_ptr<const lmb_t>> cache;
 
     expr_t* func;
     expr_t* arg;
@@ -91,34 +99,11 @@ struct apply_expr_t : public expr_t {
         func(_func), arg(_arg) {}
 
     virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
-
         auto lfunc = func->eval(env);
         auto larg = arg->eval(env);
-
-        auto key = make_pair(lfunc, larg);
-        auto it = cache.find(key);
-        if (it != cache.end())
-            return it->second;
-
-        bool _pure = pure;
-        pure = true;
-        auto retv = lfunc->exec(larg);
-
-        if (pure) {
-            pure = _pure;
-            return cache[key] = retv;
-        } else {
-            pure = false;
-            return retv;
-        }
-    }
-
-    static void clear_cache() {
-        cache.clear();
+        return lfunc->exec(larg);
     }
 };
-bool apply_expr_t::pure = true;
-map<pair<shared_ptr<const lmb_t>, shared_ptr<const lmb_t>>, shared_ptr<const lmb_t>> apply_expr_t::cache;
 
 struct ref_expr_t : public expr_t {
 
@@ -215,26 +200,18 @@ struct parser_t {
 
     parser_t() {}
 
-    string indent(int depth) {
-        return string(depth * 1, ' ');
-    }
-
     expr_t *parse_single_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
 
         string token = tok.pop();
-        //cerr << indent(depth) << "tok: " << token << endl;
-
         assert(token != "");
 
         if (token == "(") {
-            //cerr << indent(depth) << "<<app" << endl;
             auto retv = parse_expr(tok, ref, depth+1);
-            //cerr << indent(depth) << "app>>" << endl;
+            assert(tok.peak() == ")");
             tok.pop();
             return retv;
         }
         if (token != "\\") {
-            //cerr << indent(depth) << "ref: " << token << endl;
             if (!ref.count(token))
                 ref.insert(make_pair(token, ref.size()));
             auto key = make_tuple(ref[token]);
@@ -249,18 +226,15 @@ struct parser_t {
 
         map<string, int> nref;
         string arg = tok.pop();
-        //cerr << indent(depth) << "def: " << arg << endl;
-        //cerr << indent(depth) << "<<lmb" << endl;
+        assert(arg != "(" && arg != ")" && arg != "\\");
         nref[arg] = 0;
         expr_t *body = parse_expr(tok, nref, depth+1);
-        //cerr << indent(depth) << "lmb>>" << endl;
 
         nref.erase(arg);
         vector<int> arg_map(nref.size());
         for (auto pair : nref) {
             if (!ref.count(pair.first))
                 ref.insert(make_pair(pair.first, ref.size()));
-            //cerr << indent(depth) << "cap: " << pair.first << endl;
             arg_map[pair.second-1] = ref[pair.first];
         }
 
@@ -274,12 +248,9 @@ struct parser_t {
 
     expr_t *parse_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
 
-        //cerr << indent(depth) << "<<func" << endl;
         expr_t *func = parse_single_expr(tok, ref, depth+1);
-        //cerr << indent(depth) << "func>>" << endl;
         while (tok.peak() != ")") {
             assert(tok.peak() != "");
-            //cerr << indent(depth) << "<<arg" << endl;
             auto arg = parse_single_expr(tok, ref, depth+1);
             auto key = make_tuple(func, arg);
             auto it = cache_apply.find(key);
@@ -287,7 +258,6 @@ struct parser_t {
                 func = it->second;
             } else
                 func = cache_apply[key] = new apply_expr_t(func, arg);
-            //cerr << indent(depth) << "arg>>" << endl;
         }
 
         return func;
@@ -305,15 +275,11 @@ struct parser_t {
 
         env_t nenv(ref.size());
         for (auto pair : ref) {
-            //cerr << "gbl: " << pair.first << endl;
             assert(env.count(pair.first));
             nenv[pair.second-1] = env[pair.first];
         }
 
         prog->eval(shadow_env_t(nullptr, nenv));
-        apply_expr_t::clear_cache();
-        lmb_expr_t::clear_cache();
-        apply_expr_t::pure = true;
         return true;
     }
 };
@@ -332,7 +298,7 @@ void output(int bit) {
         pos = 7, val = 0;
     }
 
-    apply_expr_t::pure = false;
+    lmb_t::pure = false;
 }
 
 int input() {
@@ -345,10 +311,9 @@ int input() {
     if (pos < 0) {
         pos = 7;
         val = cin.get();
-        //cerr << "input: " << val << endl;
     }
 
-    apply_expr_t::pure = false;
+    lmb_t::pure = false;
     return (val >> pos--) & 1;
 }
 
