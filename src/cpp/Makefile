@@ -6,11 +6,10 @@ LIBDIR=$(DIR)/lib
 OBJDIR=$(DIR)/build
 
 CC=g++
-CFLAGS=-std=c++11 -I$(INCDIR) -Wall -Wextra -g
+CFLAGS=-std=c++11 -I$(INCDIR) -Wall -Wextra -O2
 
 SRCS=$(DIR)/lmb_c.cpp $(shell find $(LIBDIR) -name '*.cpp')
 OBJS=$(SRCS:$(DIR)%.cpp=$(OBJDIR)%.o)
-RTO=$(OBJDIR)/lib/runtime.o
 
 LMBC=$(OBJDIR)/lmb_c
 
@@ -24,8 +23,8 @@ $(OBJDIR)/%.o: $(DIR)/%.cpp
 %.prog.cpp: %.lmb $(LMBC)
 	$(LMBC) $< $@
 
-%: %.prog.cpp $(RTO)
-	$(CC) $(CFLAGS) $^ -o $@
+%: %.prog.cpp
+	$(CC) -fno-rtti $(CFLAGS) $^ -o $@
 
 clean:
 	rm -rf $(LMBC) $(OBJS)
