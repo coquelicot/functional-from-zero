@@ -38,9 +38,9 @@ struct val_lmb_t : public lmb_t {
 
     int arg_idx;
     expr_t *body;
-    env_t env;
+    const env_t env;
 
-    val_lmb_t(int _arg_idx, expr_t *_body, env_t &_env) :
+    val_lmb_t(int _arg_idx, expr_t *_body, const env_t &&_env) :
         arg_idx(_arg_idx), body(_body), env(_env) {}
 
     virtual shared_ptr<const lmb_t> exec(shared_ptr<const lmb_t> &&arg) const;
@@ -71,7 +71,7 @@ struct lmb_expr_t : public expr_t {
         if (it != cache.end())
             return it->second;
         else
-            return cache[key] = make_shared<val_lmb_t>(arg_idx, body, nenv);
+            return cache[key] = make_shared<val_lmb_t>(arg_idx, body, std::move(nenv));
     }
 
     static void clear_cache() {
