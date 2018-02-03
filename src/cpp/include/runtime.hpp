@@ -4,6 +4,7 @@
 #include <map>
 #include <unordered_map>
 #include <array>
+#include <tuple>
 #include <memory>
 #include <iostream>
 
@@ -17,7 +18,15 @@ using env_t = array<lmb_hdr_t, n>;
 
 template <typename T, typename... Args>
 inline shared_ptr<T> make_lmb(Args&&... args) {
-    return make_shared<T>(std::forward<Args>(args)...);
+
+    static map<tuple<Args...>, shared_ptr<T>> cache;
+
+    auto key = make_tuple(args...);
+    auto it = cache.find(key);
+    if (it != cache.end())
+        return it->second;
+    else
+        return cache[key] = make_shared<T>(std::forward<Args>(args)...);
 }
 
 struct lmb_t {
@@ -37,12 +46,12 @@ struct lmb_t {
         auto retv = exec(arg);
 
         if (pure) {
-            cache.insert(make_pair(arg, retv));
             pure = _pure;
+            return cache[arg] = retv;
         } else {
             pure = false;
+            return rertv;
         }
-        return retv;
     }
 
     virtual lmb_hdr_t exec(const lmb_hdr_t &arg) const = 0;
