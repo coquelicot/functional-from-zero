@@ -109,13 +109,13 @@ struct __builtin_g1_t : public lmb_t {
     env_t<1> env;
     __builtin_g1_t(const env_t<1> &_env) : env(_env) {}
     virtual lmb_hdr_t exec(const lmb_hdr_t &arg) const {
-        return make_lmb<__builtin_g2_t>(env_t<2>{env[0], arg});
+        return make_lmb<__builtin_g2_t>(env_t<2>{{env[0], arg}});
     }
 };
 
 struct __builtin_g0_t : public lmb_t {
     virtual lmb_hdr_t exec(const lmb_hdr_t &arg) const {
-        return make_lmb<__builtin_g1_t>(env_t<1>{arg});
+        return make_lmb<__builtin_g1_t>(env_t<1>{{arg}});
     }
 };
 

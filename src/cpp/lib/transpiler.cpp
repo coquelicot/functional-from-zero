@@ -195,13 +195,13 @@ struct transpiler_t::impl_t {
             } else {
                 stm << "make_lmb<" << inst.lmb->name << "_t>(";
                 if (inst.lmb->env_cnt > 0) {
-                    stm << "env_t<" << inst.envs.size() << ">{";
+                    stm << "env_t<" << inst.envs.size() << ">{{";
                     for (auto it = inst.envs.begin(); it != inst.envs.end(); it++) {
                         if (it != inst.envs.begin())
                             stm << ", ";
                         stm << *it;
                     }
-                    stm << "}";
+                    stm << "}}";
                 }
                 stm << ");\n";
             }
