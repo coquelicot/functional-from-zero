@@ -23,6 +23,9 @@ struct code_id_t {
     friend bool operator<(const code_id_t &a, const code_id_t &b) {
         return std::tie(a.type, a.val) < std::tie(b.type, b.val);
     }
+    friend bool operator==(const code_id_t &a, const code_id_t &b) {
+        return std::tie(a.type, a.val) == std::tie(b.type, b.val);
+    }
 
     friend std::ostream& operator<<(std::ostream &stm, const code_id_t &id) {
         switch (id.type) {
@@ -139,7 +142,7 @@ struct transpiler_t::impl_t {
         __emit(lmb, stm, emited);
 
         stm << "int main() {\n"
-            << "  " << lmb->name << "->exec(0x0, 0x0);\n"
+            << "  " << lmb->name << "->cached_exec(__builtin_g);\n"
             << "}\n";
     }
 
@@ -152,26 +155,66 @@ struct transpiler_t::impl_t {
         for (auto dep : lmb->body.deps)
             __emit(dep, stm, emited);
 
-        // FIXME: hard coded var name
-        stm << "lmb_t *" << lmb->name << "_t(lmb_t *_e[], lmb_t *" << arg_id() << ") {\n";
+        bool need_arg = false;
+        if (lmb->body.retv == arg_id())
+            need_arg = true;
+        else
+            for (auto &inst : lmb->body.insts)
+                if (inst.type == code_inst_t::APPLY) {
+                    if (inst.func == arg_id() || inst.arg == arg_id()) {
+                        need_arg = true;
+                        break;
+                    }
+                } else {
+                    for (auto env : inst.envs)
+                        if (env == arg_id()) {
+                            need_arg = true;
+                            break;
+                        }
+                }
+
+        stm << "struct " << lmb->name << "_t : public lmb_t {\n";
+
+        // member
+        if (lmb->env_cnt > 0) {
+            stm << "  env_t<" << lmb->env_cnt << "> _e;\n"; // FIXME: env name
+            stm << "  " << lmb->name << "_t(const env_t<" << lmb->env_cnt << "> &__e) : _e(__e) {}\n";
+        }
+
+        // exec func
+        stm << "  virtual lmb_hdr_t exec(const lmb_hdr_t &";
+        if (need_arg) 
+            stm << arg_id();
+        stm << ") const {\n";
+
+        // body
         for (auto inst : lmb->body.insts) {
-            stm << "    lmb_t *" << inst.retv << " = ";
+            stm << "    auto " << inst.retv << " = ";
             if (inst.type == code_inst_t::APPLY) {
-                stm << "apply(" << inst.func << ", " << inst.arg << ");\n";
+                stm << inst.func << "->cached_exec(" << inst.arg << ");\n";
             } else {
-                stm << "create<" << inst.lmb->name.val << ", " << inst.envs.size() << ">({{"
-                    << "(long)" << inst.lmb->name << "_t, 1";
-                for (auto it = inst.envs.begin(); it != inst.envs.end(); it++)
-                    stm << ", (long)" << *it;
-                stm << ", 0}});\n";
+                stm << "make_lmb<" << inst.lmb->name << "_t>(";
+                if (inst.lmb->env_cnt > 0) {
+                    stm << "env_t<" << inst.envs.size() << ">{";
+                    for (auto it = inst.envs.begin(); it != inst.envs.end(); it++) {
+                        if (it != inst.envs.begin())
+                            stm << ", ";
+                        stm << *it;
+                    }
+                    stm << "}";
+                }
+                stm << ");\n";
             }
         }
         stm << "    return " << lmb->body.retv << ";\n";
+
+        // end
+        stm << "  };\n";
         stm << "};\n";
 
         // static obj
         if (lmb->env_cnt == 0)
-            stm << "lmb_t *" << lmb->name << "(create<" << lmb->name.val << ", 0>({{(long)" << lmb->name << "_t, 1, 0}}));\n";
+            stm << "lmb_hdr_t " << lmb->name << " = make_lmb<" << lmb->name << "_t>();\n";
     }
 
     void __transpile(

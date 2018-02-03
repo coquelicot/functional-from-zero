@@ -47,6 +47,7 @@ struct lmb_t {
         body(_body), env(_env) {}
 
     shared_ptr<const lmb_t> exec(const shared_ptr<const lmb_t> &arg) const {
+        return body->eval(shadow_env_t(arg, env));
 
         auto it = cache.find(arg);
         if (it != cache.end())
@@ -81,6 +82,7 @@ struct lmb_expr_t : public expr_t {
         env_t nenv(arg_map.size());
         for (int i = 0; i < (int)arg_map.size(); i++)
             nenv[i] = env[arg_map[i]];
+        return make_shared<lmb_t>(body, nenv);
 
         auto it = cache.find(nenv);
         if (it != cache.end())
