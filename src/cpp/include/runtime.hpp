@@ -50,7 +50,7 @@ struct lmb_t {
             return cache[arg] = retv;
         } else {
             pure = false;
-            return rertv;
+            return retv;
         }
     }
 
