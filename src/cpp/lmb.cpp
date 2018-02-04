@@ -275,6 +275,8 @@ struct parser_t {
 
         env_t nenv(ref.size());
         for (auto pair : ref) {
+            if (!env.count(pair.first))
+                std::cerr << pair.first << std::endl;
             assert(env.count(pair.first));
             nenv[pair.second-1] = env[pair.first];
         }

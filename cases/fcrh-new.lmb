@@ -1,0 +1,290 @@
+# vim: set ts=2 sts=2 sw=2 :
+
+# prologue {{{
+((\def
+# }}}
+
+# basic util {{{
+def (\x x) \id
+def (\g \f \x g (f x)) \.
+def (\f (\x x x) (\x \u f (x x) u)) \Y
+# }}}
+
+# primitive pair {{{
+def (\a \b \f f a b) \$pair
+def (\p p (\a \b a)) \$first
+def (\p p (\a \b b)) \$second
+# }}}
+
+# primitive number {{{
+def (\f id) \$0
+def (\n \f . f (n f)) \$inc
+def ($inc $0) \$1 def ($inc $1) \$2 def ($inc $2) \$3
+def ($inc $3) \$4 def ($inc $4) \$5 def ($inc $5) \$6
+def ($inc $6) \$7 def ($inc $7) \$8 def ($inc $8) \$9
+# }}}
+
+# primitive condition {{{
+def $0 \$False
+def $1 \$True
+def (\c \t \f c (\_ t) f .) \$if
+def (\a \b $if a (\_ b) (\_ $False)) \$and
+def (\a \b $if a (\_ $True) (\_ b)) \$or
+def (\c $if c (\_ $False) (\_ $True)) \$not
+def (\c $if c (\_ $True) (\_ $False)) \$bool
+# }}}
+
+# primitive arithmatic {{{
+def (\n \m m $inc n) \$add
+def (\n \m . m n) \$mul
+def (\n \m m n) \$exp
+def (\n $first (n (\p $pair ($second p) ($inc ($second p))) ($pair $0 $0))) \$dec
+def (\n \m m $dec n) \$sub
+
+# we must define comparison before we can define div/mod
+def (\n \m $bool ($sub m n)) \$lt
+def (\n \m $lt m n) \$gt
+def (\n \m $not ($lt m n)) \$leq
+def (\n \m $not ($lt n m)) \$geq
+def (\n \m $or ($lt n m) ($lt m n)) \$neq
+def (\n \m $not ($neq n m)) \$eq
+
+def (Y \$div \n \m $if ($lt n m) (\_ $0) (\_ $inc ($div ($sub n m) m))) \$div
+def (\n \m $sub n ($mul m ($div n m))) \$mod
+# }}}
+
+# primitive list {{{
+def ($pair $1 $0) \$[]
+def (\x \xs ($pair $0 ($pair x xs))) \$:
+def $first \$emp?
+def (. $first $second) \$head
+def (. $second $second) \$tail
+
+def (
+  Y \$foldl \f \acc \xs
+    $if ($emp? xs)
+      (\_ acc)
+      (\_ $foldl f (f acc ($head xs)) ($tail xs))
+) \$foldl
+def (
+  Y \$foldr \f \acc \xs
+    $if ($emp? xs)
+      (\_ acc)
+      (\_ f ($head xs) ($foldr f acc ($tail xs)))
+) \$foldr
+
+def (\xs \ys $foldr $: ys xs) \$concat
+def ($foldl (\acc \x $: x acc) $[]) \$reverse
+# }}}
+
+# primitive string {{{
+def ($mul $6 $8) \$'0'
+def ($add $1 $'0') \$'1' def ($add $2 $'0') \$'2' def ($add $3 $'0') \$'3'
+def ($add $4 $'0') \$'4' def ($add $5 $'0') \$'5' def ($add $6 $'0') \$'6'
+def ($add $7 $'0') \$'7' def ($add $8 $'0') \$'8' def ($add $9 $'0') \$'9'
+def ($inc ($mul $8 $8)) \$'A'
+def ($inc $'A') \$'B' def ($inc $'B') \$'C' def ($inc $'C') \$'D' def ($inc $'D') \$'E' def ($inc $'E') \$'F'
+def ($inc $'F') \$'G' def ($inc $'G') \$'H' def ($inc $'H') \$'I' def ($inc $'I') \$'J' def ($inc $'J') \$'K'
+def ($inc $'K') \$'L' def ($inc $'L') \$'M' def ($inc $'M') \$'N' def ($inc $'N') \$'O' def ($inc $'O') \$'P'
+def ($inc $'P') \$'Q' def ($inc $'Q') \$'R' def ($inc $'R') \$'S' def ($inc $'S') \$'T' def ($inc $'T') \$'U'
+def ($inc $'U') \$'V' def ($inc $'V') \$'W' def ($inc $'W') \$'X' def ($inc $'X') \$'Y' def ($inc $'Y') \$'Z'
+def ($add $7 $'Z') \$'a'
+def ($inc $'a') \$'b' def ($inc $'b') \$'c' def ($inc $'c') \$'d' def ($inc $'d') \$'e' def ($inc $'e') \$'f'
+def ($inc $'f') \$'g' def ($inc $'g') \$'h' def ($inc $'h') \$'i' def ($inc $'i') \$'j' def ($inc $'j') \$'k'
+def ($inc $'k') \$'l' def ($inc $'l') \$'m' def ($inc $'m') \$'n' def ($inc $'n') \$'o' def ($inc $'o') \$'p'
+def ($inc $'p') \$'q' def ($inc $'q') \$'r' def ($inc $'r') \$'s' def ($inc $'s') \$'t' def ($inc $'t') \$'u'
+def ($inc $'u') \$'v' def ($inc $'v') \$'w' def ($inc $'w') \$'x' def ($inc $'x') \$'y' def ($inc $'y') \$'z'
+def $0 \$EOS
+def ($mul $4 $8) \$spc
+def ($inc $9) \$endl
+
+def (
+  Y \$streq \xs \ys
+    $if ($or ($emp? xs) ($emp? ys))
+      (\_ $and ($emp? xs) ($emp? ys))
+      (\_ $if ($eq ($head xs) ($head ys))
+        (\_ $streq ($tail xs) ($tail ys))
+        (\_ $False))
+) \$streq
+
+def (
+  \c \xss
+  $if ($emp? xss)
+    (\_ $[])
+    (\_ $tail ($foldr (\xs \ys $: c ($concat xs ys)) $[] xss))
+) \$join
+
+def ((Y \$str \s \c $if c (\_ $str ($: c s)) (\_ $reverse s)) $[]) \$STR
+def (
+  def (
+    (Y \$c2b \bs \n \v
+      $if n
+        (\_ $c2b ($: ($mod v $2) bs) ($dec n) ($div v $2))
+        (\_ bs)) $[] $8
+  ) \$c2b
+  def ($foldl (\_ \x $if x __builtin_p1 __builtin_p0) .) \$putb
+  $foldl (\_ . $putb $c2b) .
+) \$puts
+# }}}
+
+# type system building block {{{
+# typed val = wrap (func, tid, val)
+def (\v \f f v) \$wrap
+def (\v v id) \$unwrap
+def (\f \t \v $wrap (\g g f t v)) \$new
+def (\v ($unwrap v) (\f \t \v v)) \$to_raw
+def (\v ($unwrap v) (\f \t \v t)) \$type_id
+
+def ($STR $'g' $'e' $'t' $EOS) \$"get"
+def ($STR $'b' $'u' $'t' $EOS) \$"but"
+def ($STR $'e' $'x' $'p' $'e' $'c' $'t' $EOS) \$"expect"
+def ($STR $'t' $'y' $'p' $'e' $EOS) \$"type"
+def ($STR $'e' $'r' $'r' $'o' $'r' $EOS) \$"error"
+def ($STR $'o' $'v' $'e' $'r' $'f' $'l' $'o' $'w' $EOS) \$"overflow"
+
+def (Y \$abort \str (Y \gg \x gg \_ x) ($puts str)) \$abort
+def (
+  \tid_exp \tid_get
+  $abort ($join $spc (
+    $: $"type" (
+    $: $"error" (
+    $: $"expect" (
+    $: tid_exp (
+    $: $"but" (
+    $: tid_get (
+    $: $"get" (
+    $: ($STR $endl $EOS) $[])))))))
+  ))
+) \$raise_type_error
+def (
+  \tid \v
+    $if ($streq tid ($type_id v))
+      (\_ v)
+      (\_ $raise_type_error tid ($type_id v))
+) \$type_check
+
+def ($STR $'F' $'u' $'n' $'c' $EOS) \Func
+def (\tid $new (\_ $raise_type_error Func tid) tid) \new
+def (\lmb $new (\f \t \v \_ \_ lmb ($new f t v)) Func lmb) \lambda
+def (\f \r f ($wrap r)) \infix
+def $to_raw \value_of
+
+def (\tid \lmb lambda (. lmb ($type_check tid))) \$arg_type_check
+def lambda \Any:
+def ($arg_type_check Func) \Func:
+# }}}
+
+# bool & condition {{{
+def ($STR $'B' $'o' $'o' $'l' $EOS) \Bool
+def ($arg_type_check Bool) \Bool:
+def (new Bool $0) \False
+def (new Bool $1) \True
+
+def (Bool: \c Any: \t Any: \f ($if (value_of c) (\_ t) (\_ f)) True) \if
+def (Bool: \a Bool: \b if a (Any: \_ b) (Any: \_ False)) \and
+def (Bool: \a Bool: \b if a (Any: \_ True) (Any: \_ b)) \or
+def (Bool: \c if c (Any: \_ False) (Any: \_ True)) \not
+# }}}
+
+# list {{{
+def ($STR $'L' $'i' $'s' $'t' $EOS) \List
+def ($arg_type_check List) \List:
+def (new List $[]) \[]
+
+def (Any: \x List: \xs new List ($: x (value_of xs))) \:
+def (List: \xs $head (value_of xs)) \head
+def (List: \xs new List ($tail (value_of xs))) \tail
+
+def (Func: \f Any: \acc List: \xs $foldl f acc (value_of xs)) \foldl
+def (Func: \f Any: \acc List: \xs $foldr f acc (value_of xs)) \foldr
+# }}}
+
+# TODO: Int {{{
+# Int :: $[$1/$0] little endian
+def ($STR $'I' $'n' $'t' $EOS) \Int
+def (new Int) \[Int]
+def ($arg_type_check Int) \Int:
+def ([Int] $[]) \0
+def ([Int] ($: $1 $[])) \1
+
+def (
+  def (
+    Y \_inc \n
+      $if ($emp? n)
+        (\_ $: $1 $[])
+        (\_ $if ($head n)
+          (\_ $: $0 (_inc ($tail n)))
+          (\_ $: $1 ($tail n)))
+  ) \_inc
+  def (
+    Y \_add \a \b
+      $if ($emp? a) (\_ b) \_
+      $if ($emp? b) (\_ a) \_
+      $if ($and ($head a) ($head b))
+        (\_ $: $0 (_add (_inc ($tail a)) ($tail b)))
+        (\_ $: ($or ($head a) ($head b)) (_add ($tail a) ($tail b)))
+  ) \_add
+  Int: \a Int: \b [Int] (_add (value_of a) (value_of b))
+) \add
+
+def (
+  def ($STR $'o' $'v' $'e' $'r' $'f' $'l' $'o' $'w' $EOS) \"overflow"
+  def (
+    Y \_dec \n
+      $if ($emp? n)
+        (\_ $abort "overflow")
+        (\_ $if ($head n)
+          (\_ $: $0 ($tail n))
+          (\_ $: $1 (_dec ($tail n))))
+  ) \_dec
+  def (
+    Y \_sub \a \b
+      $if ($emp? b) (\_ a) \_
+      $if ($emp? a) (\_ $abort "overflow") \_
+      $if ($geq ($head a) ($head b))
+        (\_ $: ($sub ($head a) ($head b)) (_sub ($tail a) ($tail b)))
+        (\_ $: $1 (_sub (_dec ($tail a)) ($tail b)))
+  ) \_sub
+  Int: \a Int: \b [Int] (_sub (value_of a) (value_of b))
+) \sub
+
+def (
+  def (
+    Y \_mul \a \b
+      $if ($or ($emp? a) ($emp? b))
+        (\_ $[])
+        (\_
+          def ($: $0 (_mul a ($tail b))) \tmp
+          $if ($head b)
+            (\_ value_of (add ([Int] a) ([Int] tmp)))
+            (\_ tmp))
+  ) \_mul
+  Int: \a Int: \b [Int] (_mul (value_of a) (value_of b))
+) \mul
+# }}}
+
+def (
+  Int: \n
+  $foldr (\b \_ $puts ($STR ($add $'0' b) $EOS)) . (value_of n)
+) \putb
+
+def (add 1 1) \2
+def (add 1 2) \3
+def (add 1 3) \4
+def (add 1 4) \5
+def (add 1 5) \6
+def (add 1 6) \7
+def (add 1 7) \8
+def (add 1 8) \9
+def (add 1 9) \10
+
+def (: True (: False [])) \pp
+def (foldl and True pp) \zz
+
+if (zz)
+  (Any: \_ $puts $"type")
+  (Any: \_ $puts $"overflow")
+
+# epilogue {{{
+) \v \f f v)
+# }}}
