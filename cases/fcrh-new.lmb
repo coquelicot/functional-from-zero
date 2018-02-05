@@ -75,6 +75,7 @@ def (
 
 def (\xs \ys $foldr $: ys xs) \$concat
 def ($foldl (\acc \x $: x acc) $[]) \$reverse
+def ($foldl (\acc \_ $inc acc) $0) \$length
 # }}}
 
 # primitive string {{{
@@ -141,6 +142,8 @@ def ($STR $'e' $'x' $'p' $'e' $'c' $'t' $EOS) \$"expect"
 def ($STR $'t' $'y' $'p' $'e' $EOS) \$"type"
 def ($STR $'e' $'r' $'r' $'o' $'r' $EOS) \$"error"
 def ($STR $'o' $'v' $'e' $'r' $'f' $'l' $'o' $'w' $EOS) \$"overflow"
+def ($STR $'T' $'r' $'u' $'e' $EOS) \$"True"
+def ($STR $'F' $'a' $'l' $'s' $'e' $EOS) \$"False"
 
 def (Y \$abort \str (Y \gg \x gg \_ x) ($puts str)) \$abort
 def (
@@ -199,68 +202,145 @@ def (Func: \f Any: \acc List: \xs $foldl f acc (value_of xs)) \foldl
 def (Func: \f Any: \acc List: \xs $foldr f acc (value_of xs)) \foldr
 # }}}
 
-# TODO: Int {{{
+# Int {{{
 # Int :: $[$1/$0] little endian
-def ($STR $'I' $'n' $'t' $EOS) \Int
-def (new Int) \[Int]
-def ($arg_type_check Int) \Int:
-def ([Int] $[]) \0
-def ([Int] ($: $1 $[])) \1
+# impl without type
+def (
+  Y \inc \n
+    $if ($emp? n)
+      (\_ $: $1 $[])
+      (\_ $if ($head n)
+        (\_ $: $0 (inc ($tail n)))
+        (\_ $: $1 ($tail n)))
+) \inc
 
 def (
-  def (
-    Y \_inc \n
-      $if ($emp? n)
-        (\_ $: $1 $[])
-        (\_ $if ($head n)
-          (\_ $: $0 (_inc ($tail n)))
-          (\_ $: $1 ($tail n)))
-  ) \_inc
-  def (
-    Y \_add \a \b
-      $if ($emp? a) (\_ b) \_
-      $if ($emp? b) (\_ a) \_
-      $if ($and ($head a) ($head b))
-        (\_ $: $0 (_add (_inc ($tail a)) ($tail b)))
-        (\_ $: ($or ($head a) ($head b)) (_add ($tail a) ($tail b)))
-  ) \_add
-  Int: \a Int: \b [Int] (_add (value_of a) (value_of b))
+  Y \dec \n
+    $if ($emp? n)
+      (\_ $abort $"overflow")
+      (\_ $if ($head n)
+        (\_ $: $0 ($tail n))
+        (\_ $: $1 (dec ($tail n))))
+) \dec
+
+def (
+  Y \add \a \b
+    $if ($emp? a) (\_ b) \_
+    $if ($emp? b) (\_ a) \_
+    $if ($and ($head a) ($head b))
+      (\_ $: $0 (add (inc ($tail a)) ($tail b)))
+      (\_ $: ($or ($head a) ($head b)) (add ($tail a) ($tail b)))
 ) \add
 
 def (
-  def ($STR $'o' $'v' $'e' $'r' $'f' $'l' $'o' $'w' $EOS) \"overflow"
-  def (
-    Y \_dec \n
-      $if ($emp? n)
-        (\_ $abort "overflow")
-        (\_ $if ($head n)
-          (\_ $: $0 ($tail n))
-          (\_ $: $1 (_dec ($tail n))))
-  ) \_dec
-  def (
-    Y \_sub \a \b
-      $if ($emp? b) (\_ a) \_
-      $if ($emp? a) (\_ $abort "overflow") \_
-      $if ($geq ($head a) ($head b))
-        (\_ $: ($sub ($head a) ($head b)) (_sub ($tail a) ($tail b)))
-        (\_ $: $1 (_sub (_dec ($tail a)) ($tail b)))
-  ) \_sub
-  Int: \a Int: \b [Int] (_sub (value_of a) (value_of b))
+  def (\a $if ($emp? a) (\_ a) (\_ $: $0 a)) \_shl
+  Y \sub \a \b
+    $if ($emp? b) (\_ a) \_
+    $if ($emp? a) (\_ $abort $"overflow") \_
+    $if ($eq ($head a) ($head b))
+      (\_ _shl (sub ($tail a) ($tail b)))
+      (\_ $if ($gt ($head a) ($head b))
+        (\_ $: $1 (sub ($tail a) ($tail b)))
+        (\_ $: $1 (sub (dec ($tail a)) ($tail b))))
 ) \sub
 
 def (
   def (
-    Y \_mul \a \b
-      $if ($or ($emp? a) ($emp? b))
-        (\_ $[])
-        (\_
-          def ($: $0 (_mul a ($tail b))) \tmp
-          $if ($head b)
-            (\_ value_of (add ([Int] a) ([Int] tmp)))
-            (\_ tmp))
-  ) \_mul
-  Int: \a Int: \b [Int] (_mul (value_of a) (value_of b))
+    Y \_lt \a \b
+      $if ($emp? a)
+        (\_ $False)
+        (\_ $if ($neq ($head a) ($head b))
+          (\_ $lt ($head a) ($head b))
+          (\_ _lt ($tail a) ($tail b)))
+  ) \_lt
+  \a \b
+    $if ($neq ($length a) ($length b))
+      (\_ $lt ($length a) ($length b))
+      (\_ _lt ($reverse a) ($reverse b))
+) \lt
+
+def (
+  Y \mul \a \b
+    $if ($or ($emp? a) ($emp? b))
+      (\_ $[])
+      (\_
+        def ($: $0 (mul a ($tail b))) \tmp
+        $if ($head b)
+          (\_ add a tmp)
+          (\_ tmp))
 ) \mul
+
+def (
+  def (\a $if ($emp? a) (\_ a) (\_ $: $0 a)) \_shl
+  Y \div \a \b
+    $if (lt a b)
+      (\_ $pair $[] a)
+      (\_
+        def (div ($tail a) b) \tmp
+        def (_shl ($first tmp)) \res
+        def (_shl ($second tmp)) \rem
+        def ($if ($head a) (\_ inc rem) (\_ rem)) \rem
+        $if (lt rem b)
+          (\_ $pair res rem)
+          (\_ $pair (inc res) (sub rem b)))
+) \div
+
+def (
+  Y \pow \a \b
+    $if ($emp? b)
+      (\_ $: $1 $[])
+      (\_
+        def (pow a ($tail b)) \tmp
+        def (mul tmp tmp) \tmp
+        $if ($head b)
+          (\_ mul tmp a)
+          (\_ tmp))
+) \pow
+
+# typed
+def ($STR $'I' $'n' $'t' $EOS) \Int
+def ($arg_type_check Int) \Int:
+
+def (Int: \a new Int (inc (value_of a))) \inc
+def (Int: \a new Int (dec (value_of a))) \dec
+def (Int: \a Int: \b new Int (add (value_of a) (value_of b))) \add
+def (Int: \a Int: \b new Int (sub (value_of a) (value_of b))) \sub
+def (Int: \a Int: \b new Int (mul (value_of a) (value_of b))) \mul
+def (Int: \a Int: \b new Int ($first (div (value_of a) (value_of b)))) \div
+def (Int: \a Int: \b new Int ($second (div (value_of a) (value_of b)))) \mod
+def (Int: \a Int: \b new Int (pow (value_of a) (value_of b))) \pow
+
+def (Int: \a Int: \b new Bool (lt (value_of a) (value_of b))) \lt
+def (Int: \a Int: \b lt b a) \gt
+def (Int: \a Int: \b not (lt b a)) \leq
+def (Int: \a Int: \b not (lt a b)) \geq
+def (Int: \a Int: \b or (lt a b) (lt b a)) \neq
+def (Int: \a Int: \b not (neq a b)) \eq
+
+def (infix add) \+
+def (infix sub) \-
+def (infix mul) \*
+def (infix div) \/
+def (infix mod) \%
+def (infix pow) \**
+def (infix lt) \<
+def (infix gt) \>
+def (infix leq) \<=
+def (infix geq) \>=
+def (infix neq) \!=
+def (infix eq) \==
+
+def (new Int $[]) \0
+def (inc 0) \1
+def (inc 1) \2
+def (inc 2) \3
+def (inc 3) \4
+def (inc 4) \5
+def (inc 5) \6
+def (inc 6) \7
+def (inc 7) \8
+def (inc 8) \9
+def (inc 9) \10
 # }}}
 
 def (
@@ -268,22 +348,9 @@ def (
   $foldr (\b \_ $puts ($STR ($add $'0' b) $EOS)) . (value_of n)
 ) \putb
 
-def (add 1 1) \2
-def (add 1 2) \3
-def (add 1 3) \4
-def (add 1 4) \5
-def (add 1 5) \6
-def (add 1 6) \7
-def (add 1 7) \8
-def (add 1 8) \9
-def (add 1 9) \10
-
-def (: True (: False [])) \pp
-def (foldl and True pp) \zz
-
-if (zz)
-  (Any: \_ $puts $"type")
-  (Any: \_ $puts $"overflow")
+if ((6 ** 4) == ((4 ** 2) * (3 ** 4)))
+  (Any: \_ $puts $"True")
+  (Any: \_ $puts $"False")
 
 # epilogue {{{
 ) \v \f f v)
