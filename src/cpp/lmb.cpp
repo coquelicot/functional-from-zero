@@ -4,6 +4,7 @@
 #include <deque>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <memory>
 #include <utility>
 #include <tuple>
@@ -13,118 +14,96 @@
 
 using namespace std;
 
-struct expr_t;
-struct lmb_t {
-    bool pure;
-    lmb_t(bool _pure=true) : pure(_pure) {}
-    virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg) = 0;
-    virtual ~lmb_t() {}
-};
+struct lmb_t;
 
-using env_t = vector<shared_ptr<lmb_t>>;
+using env_t = vector<shared_ptr<const lmb_t>>;
 struct shadow_env_t {
 
-    int shadow_idx;
-    shared_ptr<lmb_t> shadow_val;
-    env_t &orgi_env;
+    const shared_ptr<const lmb_t> &shadow_val;
+    const env_t &orgi_env;
 
-    shadow_env_t(env_t &_orgi_env, int _shadow_idx=-1, shared_ptr<lmb_t> _shadow_val=nullptr) :
-        shadow_idx(_shadow_idx), shadow_val(_shadow_val), orgi_env(_orgi_env) {}
+    shadow_env_t(const shared_ptr<const lmb_t> &_shadow_val, const env_t &_orgi_env) :
+        shadow_val(_shadow_val), orgi_env(_orgi_env) {}
 
-    const shared_ptr<lmb_t>& operator[](int idx) const {
-        return idx == shadow_idx ? shadow_val : orgi_env[idx];
+    const shared_ptr<const lmb_t>& operator[](int idx) const {
+        return idx == 0 ? shadow_val : orgi_env[idx-1];
     }
-};
-
-struct val_lmb_t : public lmb_t {
-
-    int arg_idx;
-    shared_ptr<expr_t> body;
-    env_t env;
-
-    val_lmb_t(int _arg_idx, shared_ptr<expr_t> &_body, env_t &_env) :
-        lmb_t(true), arg_idx(_arg_idx), body(_body), env(_env) {
-
-        for (int i = 0; i < (int)env.size(); i++)
-            if (i != arg_idx && !env[i]->pure) {
-                pure = false;
-                break;
-            }
-    }
-
-    virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg);
 };
 
 struct expr_t {
-    virtual shared_ptr<lmb_t> eval(const shadow_env_t &env) = 0;
+    virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const = 0;
     virtual ~expr_t() {};
 };
 
+struct lmb_t {
+
+    static bool pure;
+
+    const expr_t *body;
+    const env_t env;
+    mutable unordered_map<shared_ptr<const lmb_t>, shared_ptr<const lmb_t>> cache;
+
+    lmb_t(expr_t *_body, const env_t &_env) :
+        body(_body), env(_env) {}
+
+    shared_ptr<const lmb_t> exec(const shared_ptr<const lmb_t> &arg) const {
+
+        auto it = cache.find(arg);
+        if (it != cache.end())
+            return it->second;
+
+        bool _pure = pure;
+        pure = true;
+        auto retv = body->eval(shadow_env_t(arg, env));
+
+        if (pure) {
+            pure = _pure;
+            return cache[arg] = retv;
+        } else {
+            pure = false;
+            return retv;
+        }
+    }
+};
+bool lmb_t::pure = true;
+
 struct lmb_expr_t : public expr_t {
 
-    int arg_idx;
+    expr_t *body;
     vector<int> arg_map;
-    shared_ptr<expr_t> body;
-    static map<tuple<int, shared_ptr<expr_t>, env_t>, shared_ptr<lmb_t>> cache;
+    mutable map<env_t, shared_ptr<const lmb_t>> cache;
 
-    lmb_expr_t(int _arg_idx, vector<int> &_arg_map, shared_ptr<expr_t> &_body) :
-        arg_idx(_arg_idx), arg_map(_arg_map), body(_body) {}
+    lmb_expr_t(expr_t *_body, const vector<int> &_arg_map) :
+        body(_body), arg_map(_arg_map) {}
 
-    virtual shared_ptr<lmb_t> eval(const shadow_env_t &env) {
+    virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
+
         env_t nenv(arg_map.size());
         for (int i = 0; i < (int)arg_map.size(); i++)
-            if (arg_map[i] >= 0)
-                nenv[i] = env[arg_map[i]];
-        auto key = make_tuple(arg_idx, body, nenv);
-        auto it = cache.find(key);
+            nenv[i] = env[arg_map[i]];
+
+        auto it = cache.find(nenv);
         if (it != cache.end())
             return it->second;
         else
-            return cache[key] = make_shared<val_lmb_t>(arg_idx, body, nenv);
-    }
-
-    static void clear_cache() {
-        cache.clear();
+            return cache[nenv] = make_shared<lmb_t>(body, nenv);
     }
 };
-map<tuple<int, shared_ptr<expr_t>, env_t>, shared_ptr<lmb_t>> lmb_expr_t::cache;
 
 struct apply_expr_t : public expr_t {
 
-    shared_ptr<expr_t> func;
-    shared_ptr<expr_t> arg;
-    static map<pair<shared_ptr<lmb_t>, shared_ptr<lmb_t>>, shared_ptr<lmb_t>> cache;
+    expr_t* func;
+    expr_t* arg;
 
-    apply_expr_t(const shared_ptr<expr_t> &_func, const shared_ptr<expr_t> &_arg) :
+    apply_expr_t(expr_t *_func, expr_t *_arg) :
         func(_func), arg(_arg) {}
 
-    virtual shared_ptr<lmb_t> eval(const shadow_env_t &env) {
-
+    virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
         auto lfunc = func->eval(env);
         auto larg = arg->eval(env);
-
-        if (lfunc->pure && larg->pure) {
-
-            auto key = make_pair(lfunc, larg);
-            auto it = cache.find(key);
-
-            if (it != cache.end())
-                return it->second;
-            else
-                return cache[key] = lfunc->exec(larg);
-        }
-
         return lfunc->exec(larg);
     }
-
-    shared_ptr<lmb_t> apply(shared_ptr<lmb_t> func, shared_ptr<lmb_t> arg) {
-    }
-
-    static void clear_cache() {
-        cache.clear();
-    }
 };
-map<pair<shared_ptr<lmb_t>, shared_ptr<lmb_t>>, shared_ptr<lmb_t>> apply_expr_t::cache;
 
 struct ref_expr_t : public expr_t {
 
@@ -132,14 +111,12 @@ struct ref_expr_t : public expr_t {
 
     ref_expr_t(int _ref_idx) : ref_idx(_ref_idx) {}
 
-    virtual shared_ptr<lmb_t> eval(const shadow_env_t &env) {
+    virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
         return env[ref_idx];
     }
 };
 
-shared_ptr<lmb_t> val_lmb_t::exec(shared_ptr<lmb_t> arg) {
-    return body->eval(shadow_env_t(env, arg_idx, arg));
-}
+// parser
 
 struct tokenizer_t {
 
@@ -168,10 +145,17 @@ struct tokenizer_t {
         do {
             if (!getline(stm, line))
                 return false;
-        } while (line.length() == 0 || line[0] == '#');
+        } while (line.length() == 0 || _is_comment(line));
 
         _parse(line);
         return true;
+    }
+
+    bool _is_comment(std::string &str) {
+        for (auto chr : str)
+            if (!isspace(chr))
+                return chr == '#';
+        return false;
     }
 
     void _parse(string &line) {
@@ -210,32 +194,24 @@ struct tokenizer_t {
 
 struct parser_t {
 
-    map<tuple<int>, shared_ptr<ref_expr_t>> cache_ref;
-    map<tuple<int, vector<int>, shared_ptr<expr_t>>, shared_ptr<lmb_expr_t>> cache_lmb;
-    map<tuple<shared_ptr<expr_t>, shared_ptr<expr_t>>, shared_ptr<apply_expr_t>> cache_apply;
+    map<tuple<int>, expr_t*> cache_ref;
+    map<tuple<vector<int>, expr_t*>, expr_t*> cache_lmb;
+    map<tuple<expr_t*, expr_t*>, expr_t*> cache_apply;
 
     parser_t() {}
 
-    string indent(int depth) {
-        return string(depth * 1, ' ');
-    }
-
-    shared_ptr<expr_t> parse_single_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
+    expr_t *parse_single_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
 
         string token = tok.pop();
-        //cerr << indent(depth) << "tok: " << token << endl;
-
         assert(token != "");
 
         if (token == "(") {
-            //cerr << indent(depth) << "<<app" << endl;
             auto retv = parse_expr(tok, ref, depth+1);
-            //cerr << indent(depth) << "app>>" << endl;
+            assert(tok.peak() == ")");
             tok.pop();
             return retv;
         }
         if (token != "\\") {
-            //cerr << indent(depth) << "ref: " << token << endl;
             if (!ref.count(token))
                 ref.insert(make_pair(token, ref.size()));
             auto key = make_tuple(ref[token]);
@@ -243,81 +219,74 @@ struct parser_t {
             if (it != cache_ref.end())
                 return it->second;
             else
-                return cache_ref[key] = make_shared<ref_expr_t>(ref[token]);
+                return cache_ref[key] = new ref_expr_t(ref[token]);
         }
 
         // lambda
 
         map<string, int> nref;
         string arg = tok.pop();
-        //cerr << indent(depth) << "def: " << arg << endl;
-        //cerr << indent(depth) << "<<lmb" << endl;
-        shared_ptr<expr_t> body = parse_expr(tok, nref, depth+1);
-        //cerr << indent(depth) << "lmb>>" << endl;
+        assert(arg != "(" && arg != ")" && arg != "\\");
+        nref[arg] = 0;
+        expr_t *body = parse_expr(tok, nref, depth+1);
 
+        nref.erase(arg);
         vector<int> arg_map(nref.size());
         for (auto pair : nref) {
-            if (pair.first == arg) {
-                arg_map[pair.second] = -1;
-            } else {
-                if (!ref.count(pair.first))
-                    ref.insert(make_pair(pair.first, ref.size()));
-                //cerr << indent(depth) << "cap: " << pair.first << endl;
-                arg_map[pair.second] = ref[pair.first];
-            }
+            if (!ref.count(pair.first))
+                ref.insert(make_pair(pair.first, ref.size()));
+            arg_map[pair.second-1] = ref[pair.first];
         }
 
-        int idx = nref.count(arg) ? nref[arg] : -1;
-        auto key = make_tuple(idx, arg_map, body);
+        auto key = make_tuple(arg_map, body);
         auto it = cache_lmb.find(key);
         if (it != cache_lmb.end())
             return it->second;
         else
-            return cache_lmb[key] = make_shared<lmb_expr_t>(idx, arg_map, body);
+            return cache_lmb[key] = new lmb_expr_t(body, arg_map);
     }
 
-    shared_ptr<expr_t> parse_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
+    expr_t *parse_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
 
-        //cerr << indent(depth) << "<<func" << endl;
-        shared_ptr<expr_t> func = parse_single_expr(tok, ref, depth+1);
-        //cerr << indent(depth) << "func>>" << endl;
+        expr_t *func = parse_single_expr(tok, ref, depth+1);
         while (tok.peak() != ")") {
             assert(tok.peak() != "");
-            //cerr << indent(depth) << "<<arg" << endl;
             auto arg = parse_single_expr(tok, ref, depth+1);
             auto key = make_tuple(func, arg);
             auto it = cache_apply.find(key);
             if (it != cache_apply.end()) {
                 func = it->second;
             } else
-                func = cache_apply[key] = make_shared<apply_expr_t>(func, arg);
-            //cerr << indent(depth) << "arg>>" << endl;
+                func = cache_apply[key] = new apply_expr_t(func, arg);
         }
 
         return func;
     }
 
-    bool run_once(tokenizer_t &tok, map<string, shared_ptr<lmb_t>> &env) {
+    bool run_once(tokenizer_t &tok, map<string, shared_ptr<const lmb_t>> &env) {
 
         if (tok.peak() == "")
             return false;
 
         map<string, int> ref;
-        shared_ptr<expr_t> prog = parse_single_expr(tok, ref);
+        ref[""] = 0; // nullptr arg
+        expr_t *prog = parse_single_expr(tok, ref);
+        ref.erase("");
 
         env_t nenv(ref.size());
         for (auto pair : ref) {
-            //cerr << "gbl: " << pair.first << endl;
+            if (!env.count(pair.first))
+                std::cerr << pair.first << std::endl;
             assert(env.count(pair.first));
-            nenv[pair.second] = env[pair.first];
+            nenv[pair.second-1] = env[pair.first];
         }
 
-        prog->eval(shadow_env_t(nenv));
-        apply_expr_t::clear_cache();
-        lmb_expr_t::clear_cache();
+        prog->eval(shadow_env_t(nullptr, nenv));
         return true;
     }
 };
+
+// runtime
 
 void output(int bit) {
 
@@ -330,6 +299,8 @@ void output(int bit) {
         cout.flush();
         pos = 7, val = 0;
     }
+
+    lmb_t::pure = false;
 }
 
 int input() {
@@ -342,35 +313,34 @@ int input() {
     if (pos < 0) {
         pos = 7;
         val = cin.get();
-        //cerr << "input: " << val << endl;
     }
 
+    lmb_t::pure = false;
     return (val >> pos--) & 1;
 }
 
-struct native_lmb_t : public lmb_t {
 
-    using argv_t = env_t;
-    using func_t = function<shared_ptr<lmb_t>(argv_t&)>;
-
-    size_t args;
-    argv_t argv;
-    func_t func;
-
-    native_lmb_t(size_t _args, func_t _func, argv_t _argv=argv_t()) :
-        lmb_t(false), args(_args), argv(_argv), func(_func) {}
-
-    virtual shared_ptr<lmb_t> exec(shared_ptr<lmb_t> arg) {
-        if (argv.size() == args) {
-            // arg is the "world" arg
-            return func(argv);
-        } else {
-            argv_t nargv = argv;
-            nargv.push_back(arg);
-            return make_shared<native_lmb_t>(args, func, nargv);
-        }
+struct builtin_p0_expr_t : public expr_t {
+    virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
+        output(0);
+        return env[0];
     }
 };
+
+struct builtin_p1_expr_t : public expr_t {
+    virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
+        output(1);
+        return env[0];
+    }
+};
+
+struct builtin_g_expr_t : public expr_t {
+    virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
+        return env[input()+1];
+    }
+};
+
+// main
 
 int main(int argc, char *args[]) {
 
@@ -380,18 +350,10 @@ int main(int argc, char *args[]) {
     tokenizer_t toks(fin);
     parser_t parser;
 
-    map<string, shared_ptr<lmb_t>> env;
-    env["__builtin_p0"] = make_shared<native_lmb_t>(0, [&env] (native_lmb_t::argv_t &argv) {
-        output(0);
-        return env["__builtin_p0"];
-    });
-    env["__builtin_p1"] = make_shared<native_lmb_t>(0, [&env] (native_lmb_t::argv_t &argv) {
-        output(1);
-        return env["__builtin_p1"];
-    });
-    env["__builtin_g"] = make_shared<native_lmb_t>(2, [] (native_lmb_t::argv_t &argv) {
-        return argv[input()];
-    });
+    map<string, shared_ptr<const lmb_t>> env;
+    env["__builtin_p0"] = make_shared<lmb_t>(new builtin_p0_expr_t(), env_t{});
+    env["__builtin_p1"] = make_shared<lmb_t>(new builtin_p1_expr_t(), env_t{});
+    env["__builtin_g"] = make_shared<lmb_t>(new lmb_expr_t(new lmb_expr_t(new builtin_g_expr_t(), {1, 0}), {0}), env_t{});
 
     while (parser.run_once(toks, env));
 }
