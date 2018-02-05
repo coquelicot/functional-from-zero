@@ -441,6 +441,10 @@
   def (infixify f::U32::==) \U32::==
   def (U32: \x U32: \y not (x U32::== y)) \f::U32::!=
   def (infixify f::U32::!=) \U32::!=
+  def (U32: \x U32: \y (x cmp y) Symbol::== cmp::GT) \f::U32::>
+  def (infixify f::U32::>) \U32::>
+  def (U32: \x U32: \y not (x U32::> y)) \f::U32::<=
+  def (infixify f::U32::<=) \U32::<=
 
   def (0 U32::!=) \U32::to_bool
 
@@ -513,7 +517,9 @@
 
   # characters
   def 10 \newline
-  def (32 + 16) \'0'
+  def (32 + 16) \'0' def (inc '0') \'1' def (inc '1') \'2' def (inc '2') \'3' def (inc '3') \'4'
+  def (inc '4') \'5' def (inc '5') \'6' def (inc '6') \'7' def (inc '7') \'8' def (inc '8') \'9'
+  def (0d { 2 5 5 }) \EOF
 
   # IO
   # a -> IO a
@@ -551,17 +557,39 @@
 
   def (\x (write x) >>= (\_ putchar newline)) \puts
 
+  # IO U32 (char)
+  def (
+    def (Y \step \l
+           if (l U32::== 0)
+              (\_ return 0)
+              (\_ (step (dec l)) >>= \x _getbit >>= \b return (x * 2 + (if b (const 1) (const 0))))) \step
+    step 8) \getchar
+
+  # IO U32
+  # Read until not number.
+  def (
+    def (Y \step \x
+      getchar >>= \c
+      if ((c U32::>= '0') && (c U32::<= '9'))
+         (\_ step (x * 10 + c - '0'))
+         (\_ return x)) \step
+    step 0
+  ) \U32::read
+  def U32::read \read
+
   # debug main
   def (Y \gcd \x \y
          if (x U32::== 0)
             (const y)
             (\_ gcd (y % x) x)) \gcd
 
+  def (Y \main \_
+    read >>= \x
+    # TODO: Handle EOF properly
+    read >>= \y
+    if ((x U32::== 0) && (y U32::== 0))
+       (\_ return _)
+       (\_ puts (gcd x y) >>= \_ main _)) \main
 
-  _runIO (
-    (puts ((0d { 1 0 4 7 7 7 9 1 2 1 }) / (0d { 5 1 4 })))
-    >>= (\_ puts ((0d { 1 0 4 7 7 7 9 1 2 1 }) % (0d { 5 1 4 })))
-    >>= (\_ puts (gcd (0d { 3 0 0 0 }) (0d { 2 0 0 0 })))
-    >>= (\_ puts (gcd (0d { 1 0 9 5 9 5 5 9 4 }) (0d { 6 3 1 4 9 5 2 6 })))
-  )
+  _runIO (main _)
 )) \x \y y x)
