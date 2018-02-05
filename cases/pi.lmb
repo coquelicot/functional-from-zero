@@ -452,10 +452,10 @@
             def (tail xs) \t
             def (splitAt (dec idx) t) \res
             ((h : (first res)) , (second res))))) \splitAt
-  def (Y \len List: \xs
+  def (Y \length List: \xs
     if (null xs)
        (const 0)
-       (\_ inc (len (tail xs)))) \len
+       (\_ inc (length (tail xs)))) \length
 
   # a...b, or [] if a >= b
   def (Y \range U32: \a U32: \b
@@ -469,7 +469,7 @@
        (\_ x * (pow x (dec y)))) \pow
 
   def (\base \xs
-    def (len xs) \l
+    def (length xs) \l
     def (zip (reverse (range 0 l)) xs) \ps
     foldl f::+ 0 (
       map (\p (second p) * (pow base (first p))) ps)) \list_to_u32
@@ -564,20 +564,4 @@
     >>= (\_ puts (gcd (0d { 3 0 0 0 }) (0d { 2 0 0 0 })))
     >>= (\_ puts (gcd (0d { 1 0 9 5 9 5 5 9 4 }) (0d { 6 3 1 4 9 5 2 6 })))
   )
-  # def (Y \to_w0 \x
-  #      if (x U32::== 0)
-  #         (const 0::0)
-  #         (\_ 0::inc (to_w0 (dec x)))) \U32::to_w0
-
-
-  # def (
-  #   Y \puts_list \l
-  #     if (null l)
-  #        (\_ _)
-  #        (\_ seq (puts (head l)) (puts_list (tail l)))) \puts_list
-
-  # # def (map (\x x + x) (List{ 5 0 2 1 6 })) \t2
-  # seq
-  # # (puts_list t2)
-
 )) \x \y y x)
