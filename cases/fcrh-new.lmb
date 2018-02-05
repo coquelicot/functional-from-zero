@@ -413,7 +413,7 @@ def (\xs $to_list ($foldr (\c \ys $: ($to_char c) ys) $[] xs)) \$to_str
 def (List: \xs $foldr (Char: \c \ys $: ($from_char c) ys) $[] ($from_list xs)) \$from_str
 # }}}
 
-# fix type helpers {{{
+# Type!!!! {{{
 # with these builtin types, we may enhance our type system!!!
 
 # we must hide the native tid string with an special type "Type"
@@ -437,7 +437,7 @@ def (Type: \t new (value_of t)) \new
 def (Type: \t Any: \v $if ($instance_of (value_of t) v) (\_ True) (\_ False)) \instance_of
 # }}}
 
-# io {{{
+# IO {{{
 # IO = w -> (w, a)
 type ({ 'W' 'o' 'r' 'l' 'd' }) \World \World:
 type ({ 'I' 'O' }) \IO \IO:
