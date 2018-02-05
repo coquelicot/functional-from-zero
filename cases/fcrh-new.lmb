@@ -95,6 +95,7 @@ def ($inc $'f') \$'g' def ($inc $'g') \$'h' def ($inc $'h') \$'i' def ($inc $'i'
 def ($inc $'k') \$'l' def ($inc $'l') \$'m' def ($inc $'m') \$'n' def ($inc $'n') \$'o' def ($inc $'o') \$'p'
 def ($inc $'p') \$'q' def ($inc $'q') \$'r' def ($inc $'r') \$'s' def ($inc $'s') \$'t' def ($inc $'t') \$'u'
 def ($inc $'u') \$'v' def ($inc $'v') \$'w' def ($inc $'w') \$'x' def ($inc $'x') \$'y' def ($inc $'y') \$'z'
+def ($inc $'z') \$'{' def ($inc $'{') \$'|' def ($inc $'|') \$'}'
 def $0 \$EOS
 def ($mul $4 $8) \$spc
 def ($inc $9) \$endl
@@ -124,8 +125,9 @@ def (
         (\_ bs)) $[] $8
   ) \$c2b
   def ($foldl (\_ \x $if x __builtin_p1 __builtin_p0) .) \$putb
-  $foldl (\_ . $putb $c2b) .
-) \$puts
+  . $putb $c2b
+) \$putc
+def ($foldl (\_ $putc) .) \$puts
 # }}}
 
 # type system building block {{{
@@ -146,6 +148,7 @@ def ($STR $'T' $'r' $'u' $'e' $EOS) \$"True"
 def ($STR $'F' $'a' $'l' $'s' $'e' $EOS) \$"False"
 
 def (Y \$abort \str (Y \gg \x gg \_ x) ($puts str)) \$abort
+def (\tid \v $streq tid ($type_id v)) \$instance_of
 def (
   \tid_exp \tid_get
   $abort ($join $spc (
@@ -161,50 +164,53 @@ def (
 ) \$raise_type_error
 def (
   \tid \v
-    $if ($streq tid ($type_id v))
+    $if ($instance_of tid v)
       (\_ v)
       (\_ $raise_type_error tid ($type_id v))
 ) \$type_check
 
+def $to_raw \value_of
+def (\f \r f ($wrap r)) \infix
+
+# Func / Symbol
 def ($STR $'F' $'u' $'n' $'c' $EOS) \Func
+def ($STR $'S' $'y' $'m' $'b' $'o' $'l' $EOS) \Symbol
 def (\tid $new (\_ $raise_type_error Func tid) tid) \new
 def (\lmb $new (\f \t \v \_ \_ lmb ($new f t v)) Func lmb) \lambda
-def (\f \r f ($wrap r)) \infix
-def $to_raw \value_of
+# value of symbol is a identifier string
+def (\sym \lmb $new (\f \t \v \_ \_ lmb ($new f t v)) Symbol sym) \$symbol
 
 def (\tid \lmb lambda (. lmb ($type_check tid))) \$arg_type_check
 def lambda \Any:
 def ($arg_type_check Func) \Func:
+def ($arg_type_check Symbol) \Symbol:
 # }}}
 
-# bool & condition {{{
+# Bool & condition {{{
 def ($STR $'B' $'o' $'o' $'l' $EOS) \Bool
 def ($arg_type_check Bool) \Bool:
 def (new Bool $0) \False
 def (new Bool $1) \True
 
-def (Bool: \c Any: \t Any: \f ($if (value_of c) (\_ t) (\_ f)) True) \if
-def (Bool: \a Bool: \b if a (Any: \_ b) (Any: \_ False)) \and
-def (Bool: \a Bool: \b if a (Any: \_ True) (Any: \_ b)) \or
-def (Bool: \c if c (Any: \_ False) (Any: \_ True)) \not
+def (Bool: \c \t \f ($if (value_of c) (\_ t) (\_ f)) True) \if
+def (Bool: \a Bool: \b if a (\_ b) (\_ False)) \and
+def (Bool: \a Bool: \b if a (\_ True) (\_ b)) \or
+def (Bool: \c if c (\_ False) (\_ True)) \not
 # }}}
 
-# list {{{
-def ($STR $'L' $'i' $'s' $'t' $EOS) \List
-def ($arg_type_check List) \List:
-def (new List $[]) \[]
+# Pair {{{
+def ($STR $'P' $'a' $'i' $'r' $EOS) \Pair
+def ($arg_type_check Pair) \Pair:
 
-def (Any: \x List: \xs new List ($: x (value_of xs))) \:
-def (List: \xs $head (value_of xs)) \head
-def (List: \xs new List ($tail (value_of xs))) \tail
-
-def (Func: \f Any: \acc List: \xs $foldl f acc (value_of xs)) \foldl
-def (Func: \f Any: \acc List: \xs $foldr f acc (value_of xs)) \foldr
+def (Any: \a Any: \b new Pair ($pair a b)) \pair
+def (Pair: \p $first (value_of p)) \first
+def (Pair: \p $second (value_of p)) \second
 # }}}
 
-# Int {{{
+# Int & arith {{{
 # Int :: $[$1/$0] little endian
 # impl without type
+def (\a $if ($emp? a) (\_ a) (\_ $: $0 a)) \_shl
 def (
   Y \inc \n
     $if ($emp? n)
@@ -219,7 +225,7 @@ def (
     $if ($emp? n)
       (\_ $abort $"overflow")
       (\_ $if ($head n)
-        (\_ $: $0 ($tail n))
+        (\_ _shl ($tail n))
         (\_ $: $1 (dec ($tail n))))
 ) \dec
 
@@ -233,7 +239,6 @@ def (
 ) \add
 
 def (
-  def (\a $if ($emp? a) (\_ a) (\_ $: $0 a)) \_shl
   Y \sub \a \b
     $if ($emp? b) (\_ a) \_
     $if ($emp? a) (\_ $abort $"overflow") \_
@@ -264,14 +269,13 @@ def (
     $if ($or ($emp? a) ($emp? b))
       (\_ $[])
       (\_
-        def ($: $0 (mul a ($tail b))) \tmp
+        def (_shl (mul a ($tail b))) \tmp
         $if ($head b)
           (\_ add a tmp)
           (\_ tmp))
 ) \mul
 
 def (
-  def (\a $if ($emp? a) (\_ a) (\_ $: $0 a)) \_shl
   Y \div \a \b
     $if (lt a b)
       (\_ $pair $[] a)
@@ -331,26 +335,132 @@ def (infix neq) \!=
 def (infix eq) \==
 
 def (new Int $[]) \0
-def (inc 0) \1
-def (inc 1) \2
-def (inc 2) \3
-def (inc 3) \4
-def (inc 4) \5
-def (inc 5) \6
-def (inc 6) \7
-def (inc 7) \8
-def (inc 8) \9
-def (inc 9) \10
+def (inc 0) \1 def (inc 1) \2 def (inc 2) \3 def (inc 3) \4 def (inc 4) \5
+def (inc 5) \6 def (inc 6) \7 def (inc 7) \8 def (inc 8) \9 def (inc 9) \10
+
+# helper to map between primitive num & typed num
+def (\n n inc 0) \$to_int
+def ((Y \_do \v Int: \n if (0 == n) (\_ v) (\_ _do ($inc v) (dec n))) $0) \$from_int
 # }}}
 
-def (
-  Int: \n
-  $foldr (\b \_ $puts ($STR ($add $'0' b) $EOS)) . (value_of n)
-) \putb
+# List {{{
+def ($STR $'L' $'i' $'s' $'t' $EOS) \List
+def ($arg_type_check List) \List:
+def (new List $[]) \[]
 
-if ((6 ** 4) == ((4 ** 2) * (3 ** 4)))
-  (Any: \_ $puts $"True")
-  (Any: \_ $puts $"False")
+def (Any: \x List: \xs new List ($: x (value_of xs))) \:
+def (List: \xs $head (value_of xs)) \head
+def (List: \xs new List ($tail (value_of xs))) \tail
+
+def (Func: \f Any: \acc List: \xs $foldl f acc (value_of xs)) \foldl
+def (Func: \f Any: \acc List: \xs $foldr f acc (value_of xs)) \foldr
+def (List: \xs List: \ys new List ($concat (value_of xs) (value_of ys))) \concat
+def (List: \xs new List ($reverse (value_of xs))) \reverse
+def (List: \xs foldl (Int: \n Any: \_ inc n) 0 xs) \length
+
+def (List: \xs value_of xs) \$from_list
+def (\xs new List xs) \$to_list
+# list builder
+def ($symbol ($STR $'}' $EOS) (\_ $abort $"error")) \}
+def (
+  $symbol ($STR $'{' $EOS) (
+    (Y \build List: \xs Any: \x
+      $if ($instance_of Symbol x)
+        (\_ $if ($streq (value_of x) (value_of }))
+          (\_ reverse xs)
+          (\_ $abort $"error"))
+        (\_ build (: x xs))) []
+)) \{
+# }}}
+
+# Char {{{
+def ($STR $'C' $'h' $'a' $'r' $EOS) \Char
+def ($arg_type_check Char) \Char:
+
+def (Char: \c $to_int (value_of c)) \ord
+def (
+  Int: \v
+    if (v >= (2 ** 8))
+      (\_ $abort $"overflow")
+      (\_ new Char ($from_int v))
+) \chr
+
+def (new Char $'0') \'0' def (new Char $'1') \'1' def (new Char $'2') \'2' def (new Char $'3') \'3' def (new Char $'4') \'4'
+def (new Char $'5') \'5' def (new Char $'6') \'6' def (new Char $'7') \'7' def (new Char $'8') \'8' def (new Char $'9') \'9'
+def (new Char $'A') \'A' def (new Char $'B') \'B' def (new Char $'C') \'C' def (new Char $'D') \'D' def (new Char $'E') \'E'
+def (new Char $'F') \'F' def (new Char $'G') \'G' def (new Char $'H') \'H' def (new Char $'I') \'I' def (new Char $'J') \'J'
+def (new Char $'K') \'K' def (new Char $'L') \'L' def (new Char $'M') \'M' def (new Char $'N') \'N' def (new Char $'O') \'O'
+def (new Char $'P') \'P' def (new Char $'Q') \'Q' def (new Char $'R') \'R' def (new Char $'S') \'S' def (new Char $'T') \'T'
+def (new Char $'U') \'U' def (new Char $'V') \'V' def (new Char $'W') \'W' def (new Char $'X') \'X' def (new Char $'Y') \'Y'
+def (new Char $'Z') \'Z'
+def (new Char $'a') \'a' def (new Char $'b') \'b' def (new Char $'c') \'c' def (new Char $'d') \'d' def (new Char $'e') \'e'
+def (new Char $'f') \'f' def (new Char $'g') \'g' def (new Char $'h') \'h' def (new Char $'i') \'i' def (new Char $'j') \'j'
+def (new Char $'k') \'k' def (new Char $'l') \'l' def (new Char $'m') \'m' def (new Char $'n') \'n' def (new Char $'o') \'o'
+def (new Char $'p') \'p' def (new Char $'q') \'q' def (new Char $'r') \'r' def (new Char $'s') \'s' def (new Char $'t') \'t'
+def (new Char $'u') \'u' def (new Char $'v') \'v' def (new Char $'w') \'w' def (new Char $'x') \'x' def (new Char $'y') \'y'
+def (new Char $'z') \'z'
+def (new Char $'{') \'{' def (new Char $'|') \'|' def (new Char $'}') \'}'
+def (new Char $spc) \spc
+def (new Char $endl) \endl
+
+def (\v new Char v) \$to_char
+def (Char: \c value_of c) \$from_char
+# }}}
+
+# String {{{
+# just List of Char
+def (\xs $to_list ($foldr (\c \ys $: ($to_char c) ys) $[] xs)) \$to_str
+def (List: \xs $foldr (Char: \c \ys $: ($from_char c) ys) $[] ($from_list xs)) \$from_str
+# }}}
+
+# fix type helpers {{{
+# with these builtin types, we may enhance our type system!!!
+
+# we must hide the native tid string with an special type "Type"
+def ($from_str({ 'T' 'y' 'p' 'e' })) \Type
+def ($arg_type_check Type) \Type:
+def (List: \xs \p p (new Type ($from_str xs)) ($arg_type_check ($from_str xs))) \type
+
+# redefine builtin types
+def (new Type Bool) \Bool
+def (new Type Pair) \Pair
+def (new Type Int) \Int
+def (new Type List) \List
+def (new Type Char) \Char
+# last
+def (new Type Type) \Type
+
+# redefine new
+def (Type: \t new (value_of t)) \new
+
+# utils
+def (Type: \t Any: \v $if ($instance_of (value_of t) v) (\_ True) (\_ False)) \instance_of
+# }}}
+
+# io {{{
+# IO = w -> (w, a)
+type ({ 'W' 'o' 'r' 'l' 'd' }) \World \World:
+type ({ 'I' 'O' }) \IO \IO:
+def (IO: \io World: \w (value_of io) w) \_run_io_with
+def (IO: \io second (_run_io_with io (new World 0))) \_run_io
+
+# a -> IO a
+def (Any: \v new IO (World: \w pair w v)) \return
+# IO a -> (a -> IO b) -> IO b
+def (infix (
+  IO: \io Func: \lmb
+    new IO (
+      World: \w
+        def (_run_io_with io w) \p
+        _run_io_with (lmb (second p)) (first p))
+)) \>>=
+
+# builtin io
+# }}}
+
+if (instance_of Int True)
+  (\_ $puts $"True")
+  (\_ $puts $"False")
 
 # epilogue {{{
 ) \v \f f v)
