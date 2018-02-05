@@ -428,7 +428,6 @@
   def (inc 25) \26 def (inc 26) \27 def (inc 27) \28 def (inc 28) \29 def (inc 29) \30
   def (inc 30) \31 def (inc 31) \32
 
-
   def (U32: \x inc (~ x)) \neg
   def (U32: \x U32: \y (x + (neg y))) \f::-
   def (infixify f::-) \-
@@ -512,32 +511,73 @@
   def (blockify (list_to_u32 2)) \0b
   def (blockify (list_to_u32 10)) \0d
 
-  def (Y \to_w0 \x
-       if (x U32::== 0)
-          (const 0::0)
-          (\_ 0::inc (to_w0 (dec x)))) \U32::to_w0
+  # characters
+  def 10 \newline
+  def (32 + 16) \'0'
 
+  # IO
+  # a -> IO a
+  def (\x [IO] (const x)) \return
+  def (IO: \io (_down io) _) \_runIO
+  # IO a -> (a -> IO b) -> IO b
+  def (IO: \io \f
+    [IO] (\_ _runIO (f (_runIO io)))) \f::>>=
+  def (infixify f::>>=) \>>=
+
+  # Basic IO
+  # IO Bool
+  def ([IO] \_ __builtin_g False True _) \_getbit
+  # Bool -> IO ()
+  def (Bool: \b [IO] (\_ if b (\_ __builtin_p1 _) (\_ __builtin_p0 _))) \_putbit
+
+  # U32 (char) -> IO ()
+  # TODO(Darkpi): We may want a char type.
   def (
-    def (Y \p \x
+    def (Y \step \l \c
+           if (l U32::== 0)
+              (const return _)
+              (\_ (step (dec l) (c / 2)) >>= (\_ _putbit (U32::to_bool (c % 2))))) \step
+    U32: \c step 8 c) \putchar
+
+  # U32 -> IO ()
+  def (
+    def (Y \step \x
       if (x U32::== 0)
-         (id)
+         (\_ return _)
          (\_ def (divmod x 10) \r
-             seq (p (first r)) (putc (0::+ 0::'0' (U32::to_w0 (second r)))))) \p
-    \x seq
-       (if (x U32::== 0) (\_ putc 0::'0') (\_ p x))
-       (putc newline)) \puts
+             (step (first r)) >>= (\_ putchar ('0' + (second r))))) \step
+    \x (if (x U32::== 0) (\_ putchar '0') (\_ step x))) \U32::write
+  def U32::write \write
+
+  def (\x (write x) >>= (\_ putchar newline)) \puts
 
   # debug main
-  def (
-    Y \puts_list \l
-      if (null l)
-         (\_ _)
-         (\_ seq (puts (head l)) (puts_list (tail l)))) \puts_list
+  def (Y \gcd \x \y
+         if (x U32::== 0)
+            (const y)
+            (\_ gcd (y % x) x)) \gcd
 
-  # def (map (\x x + x) (List{ 5 0 2 1 6 })) \t2
-  seq
-  # (puts_list t2)
 
-  (puts ((0d { 1 0 4 7 7 7 9 1 2 1 }) / (0d { 5 1 4 })))
-  (puts ((0d { 1 0 4 7 7 7 9 1 2 1 }) % (0d { 5 1 4 })))
+  _runIO (
+    (puts ((0d { 1 0 4 7 7 7 9 1 2 1 }) / (0d { 5 1 4 })))
+    >>= (\_ puts ((0d { 1 0 4 7 7 7 9 1 2 1 }) % (0d { 5 1 4 })))
+    >>= (\_ puts (gcd (0d { 3 0 0 0 }) (0d { 2 0 0 0 })))
+    >>= (\_ puts (gcd (0d { 1 0 9 5 9 5 5 9 4 }) (0d { 6 3 1 4 9 5 2 6 })))
+  )
+  # def (Y \to_w0 \x
+  #      if (x U32::== 0)
+  #         (const 0::0)
+  #         (\_ 0::inc (to_w0 (dec x)))) \U32::to_w0
+
+
+  # def (
+  #   Y \puts_list \l
+  #     if (null l)
+  #        (\_ _)
+  #        (\_ seq (puts (head l)) (puts_list (tail l)))) \puts_list
+
+  # # def (map (\x x + x) (List{ 5 0 2 1 6 })) \t2
+  # seq
+  # # (puts_list t2)
+
 )) \x \y y x)
