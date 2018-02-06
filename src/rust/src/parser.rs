@@ -1,4 +1,4 @@
-use std::{error, fmt};
+use std::{error, fmt, iter};
 
 use super::tokenizer::{Location, Token, TokenType};
 
@@ -27,7 +27,7 @@ impl Error {
     fn new(error_type: ErrorType, token: &Token) -> Error {
         Error {
             error_type,
-            location: token.location,
+            location: token.location.clone(),
         }
     }
 }
@@ -43,6 +43,8 @@ impl error::Error for Error {
     }
 }
 
+const EOF_TOKEN_MISSING: &str = "EOF Token missing QQ";
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "At {}: ", self.location)?;
@@ -55,65 +57,72 @@ impl fmt::Display for Error {
     }
 }
 
-fn parse_single<'a>(tokens: &'a [Token]) -> Result<(Node<'a>, &'a [Token<'a>]), Error> {
-    if let Some((token, tokens)) = tokens.split_first() {
-        match token.token_type {
-            TokenType::Identifier(name) => Ok((Node::Identifier(name), tokens)),
-            TokenType::LeftParen => {
-                let (expression, tokens) = parse_multi(tokens)?;
-                if let Some((right_paren, tokens)) = tokens.split_first() {
-                    if let TokenType::RightParen = right_paren.token_type {
-                        return Ok((expression, tokens));
-                    }
-                }
-                Err(Error::new(ErrorType::MissingRightParen, &token))
+fn parse_single<'a, I>(tokens: &mut iter::Peekable<I>) -> Result<Node<'a>, Error>
+where
+    I: Iterator<Item = &'a Token<'a>>,
+{
+    let token = tokens.next().expect(EOF_TOKEN_MISSING);
+    match token.token_type {
+        TokenType::Identifier(name) => Ok(Node::Identifier(name)),
+        TokenType::LeftParen => {
+            let expression = parse_multi(tokens)?;
+            if let Some(&Token {
+                token_type: TokenType::RightParen,
+                ..
+            }) = tokens.next()
+            {
+                return Ok(expression);
             }
-            TokenType::RightParen => Err(Error::new(ErrorType::ExtraRightParen, &token)),
-            TokenType::LambdaStart => {
-                if let Some((arg, tokens)) = tokens.split_first() {
-                    if let TokenType::Identifier(name) = arg.token_type {
-                        let (expression, tokens) = parse_multi(tokens)?;
-                        return Ok((Node::Lambda(name, Box::new(expression)), tokens));
-                    }
-                }
-                Err(Error::new(ErrorType::MissingLambdaArg, &token))
-            }
+            Err(Error::new(ErrorType::MissingRightParen, &token))
         }
-    } else {
-        // TODO(Darkpi): Add EOF token.
-        Err(Error {
-            error_type: ErrorType::EOFReached,
-            location: Location {
-                line_no: 0,
-                column_no: 0,
-            },
-        })
+        TokenType::RightParen => Err(Error::new(ErrorType::ExtraRightParen, &token)),
+        TokenType::LambdaStart => {
+            if let Some(&Token {
+                token_type: TokenType::Identifier(name),
+                ..
+            }) = tokens.next()
+            {
+                let expression = parse_multi(tokens)?;
+                return Ok(Node::Lambda(name, Box::new(expression)));
+            }
+            Err(Error::new(ErrorType::MissingLambdaArg, &token))
+        }
+        TokenType::EndOfFile => Err(Error::new(ErrorType::EOFReached, &token)),
+        TokenType::WhiteSpace => unreachable!(),
     }
 }
 
-fn parse_multi<'a>(tokens: &'a [Token]) -> Result<(Node<'a>, &'a [Token<'a>]), Error> {
-    let (mut expression, mut tokens) = parse_single(tokens)?;
+fn parse_multi<'a, I>(tokens: &mut iter::Peekable<I>) -> Result<Node<'a>, Error>
+where
+    I: Iterator<Item = &'a Token<'a>>,
+{
+    let mut expression = parse_single(tokens)?;
     loop {
-        if let Some(next_token) = tokens.first() {
-            if let TokenType::RightParen = next_token.token_type {
-                break;
-            } else {
-                let (parameter, remain_tokens) = parse_single(tokens)?;
-                expression = Node::Apply(Box::new(expression), Box::new(parameter));
-                tokens = remain_tokens;
+        {
+            let next_token = tokens.peek().expect(EOF_TOKEN_MISSING);
+            match next_token.token_type {
+                TokenType::RightParen | TokenType::EndOfFile => break,
+                _ => (),
             }
-        } else {
-            break;
         }
+        let parameter = parse_single(tokens)?;
+        expression = Node::Apply(Box::new(expression), Box::new(parameter));
     }
-    Ok((expression, tokens))
+    Ok(expression)
 }
 
 pub fn parse<'a>(tokens: &'a [Token]) -> Result<Node<'a>, Error> {
-    let (expression, extra) = parse_multi(tokens)?;
-    if let Some(token) = extra.first() {
-        Err(Error::new(ErrorType::ExtraRightParen, &token))
-    } else {
-        Ok(expression)
+    let mut token_iter = tokens
+        .iter()
+        .filter(|x| match x.token_type {
+            TokenType::WhiteSpace => false,
+            _ => true,
+        })
+        .peekable();
+    let expression = parse_multi(&mut token_iter)?;
+    let extra_token = token_iter.next().expect(EOF_TOKEN_MISSING);
+    match extra_token.token_type {
+        TokenType::EndOfFile => Ok(expression),
+        _ => Err(Error::new(ErrorType::ExtraRightParen, &extra_token)),
     }
 }
