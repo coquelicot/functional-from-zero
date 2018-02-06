@@ -4,8 +4,8 @@ use super::tokenizer::{Token, TokenType};
 
 #[derive(Debug)]
 pub enum Node<'a> {
-    Identifier(&'a str),
-    Lambda(&'a str, Box<Node<'a>>),
+    Identifier(&'a Token<'a>),
+    Lambda(&'a Token<'a>, Box<Node<'a>>),
     Apply(Box<Node<'a>>, Box<Node<'a>>),
 }
 
@@ -60,7 +60,7 @@ where
 {
     let token = tokens.next().expect(EOF_TOKEN_MISSING);
     match token.token_type {
-        TokenType::Identifier(name) => Ok(Node::Identifier(name)),
+        TokenType::Identifier(_) => Ok(Node::Identifier(token)),
         TokenType::LeftParen => {
             let expression = parse_multi(tokens)?;
             let token = tokens.next().expect(EOF_TOKEN_MISSING);
@@ -73,9 +73,9 @@ where
         TokenType::LambdaStart => {
             let token = tokens.next().expect(EOF_TOKEN_MISSING);
             match token.token_type {
-                TokenType::Identifier(name) => {
+                TokenType::Identifier(_) => {
                     let expression = parse_multi(tokens)?;
-                    Ok(Node::Lambda(name, Box::new(expression)))
+                    Ok(Node::Lambda(token, Box::new(expression)))
                 }
                 _ => Err(Error::new(ErrorType::MissingLambdaArg, token)),
             }

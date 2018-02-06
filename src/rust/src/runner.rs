@@ -5,12 +5,13 @@ use std::sync::Mutex;
 use std::hash::{Hash, Hasher};
 use std::borrow::Borrow;
 
+use super::tokenizer::Token;
 use super::transformer;
 use super::transformer::Expression;
 use super::bitio;
 
 type RcLambda<'a> = Rc<Lambda<'a> + 'a>;
-type LambdaReturn<'a> = Result<(RcLambda<'a>, bool), Error>;
+type LambdaReturn<'a> = Result<(RcLambda<'a>, bool), Error<'a>>;
 
 trait Lambda<'a>: fmt::Debug {
     fn apply(&self, arg: RcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a>;
@@ -204,12 +205,12 @@ impl<'a> Lambda<'a> for BitInputLambda2<'a> {
 }
 
 #[derive(Debug)]
-pub enum Error {
-    UndefinedVariable(Vec<String>),
+pub enum Error<'a> {
+    UndefinedVariable(Vec<&'a Token<'a>>),
     // DummyLambdaCalled,
 }
 
-impl error::Error for Error {
+impl<'a> error::Error for Error<'a> {
     fn description(&self) -> &str {
         match *self {
             Error::UndefinedVariable(_) => "undefined free variable",
@@ -218,11 +219,14 @@ impl error::Error for Error {
     }
 }
 
-impl fmt::Display for Error {
+impl<'a> fmt::Display for Error<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::UndefinedVariable(ref vars) => {
-                write!(f, "Undefined free variables [{}]", vars.join(", "))
+                for var in vars {
+                    write!(f, "Undefined variable \"{}\" ({})\n", var.token_raw, var.location)?;
+                }
+                Ok(())
             }
             // Error::DummyLambdaCalled => write!(f, "Dummy lambda called!"),
         }
@@ -296,16 +300,16 @@ fn run_impl<'a>(
     }
 }
 
-pub fn run(expression: &Expression, free_vars: &Vec<&str>) -> Result<(), Error> {
-    let mut undefined_vars: Vec<String> = vec![];
+pub fn run<'a>(expression: &'a Expression, free_vars: &'a Vec<&'a Token<'a>>) -> Result<(), Error<'a>> {
+    let mut undefined_vars: Vec<&Token> = vec![];
     let mut environment = BaseEnvironment::new();
     for name in free_vars.iter() {
-        match *name {
+        match name.token_raw {
             "__builtin_p0" => environment.push(Rc::from(BitOutputLambda::new(0))),
             "__builtin_p1" => environment.push(Rc::from(BitOutputLambda::new(1))),
             "__builtin_g" => environment.push(Rc::from(BitInputLambda::new())),
             "__builtin_debug" => environment.push(Rc::from(DebugLambda::new())),
-            var => undefined_vars.push(var.to_string()),
+            _ => undefined_vars.push(name),
         }
     }
     if !undefined_vars.is_empty() {

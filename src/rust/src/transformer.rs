@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use super::tokenizer::Token;
 use super::parser::Node;
 
 #[derive(Debug)]
@@ -65,9 +66,12 @@ impl ExpressionCache {
     }
 }
 
+// value is (reindexed name, first seen token).
+type Variable<'a> = (usize, &'a Token<'a>);
+
 #[derive(Debug)]
 struct VariableNameMap<'a> {
-    map: HashMap<&'a str, usize>,
+    map: HashMap<&'a str, Variable<'a>>,
 }
 
 impl<'a> VariableNameMap<'a> {
@@ -76,9 +80,9 @@ impl<'a> VariableNameMap<'a> {
             map: HashMap::new(),
         }
     }
-    fn get_or_insert(&mut self, name: &'a str) -> usize {
+    fn get_or_insert(&mut self, token: &'a Token<'a>) -> usize {
         let len = self.map.len();
-        *self.map.entry(name).or_insert(len)
+        self.map.entry(token.token_raw).or_insert((len, token)).0
     }
 }
 
@@ -88,20 +92,20 @@ fn transform_impl<'a>(
     expression_cache: &mut ExpressionCache,
 ) -> Rc<Expression> {
     match *root {
-        Node::Identifier(name) => {
-            let name = free_vars.get_or_insert(name);
+        Node::Identifier(token) => {
+            let name = free_vars.get_or_insert(token);
             expression_cache.new_identifier(name)
         }
-        Node::Lambda(arg_name, ref body) => {
+        Node::Lambda(arg_token, ref body) => {
             let mut body_free_vars = VariableNameMap::new();
-            let arg = body_free_vars.get_or_insert(arg_name);
+            let arg = body_free_vars.get_or_insert(arg_token);
             assert!(arg == 0);
             let body = transform_impl(body, &mut body_free_vars, expression_cache);
             let mut env_map = vec![0; body_free_vars.map.len() - 1];
-            for (name, idx) in body_free_vars.map {
-                assert!(name != arg_name || idx == 0);
+            for (name, (idx, token)) in body_free_vars.map {
+                assert!(name != arg_token.token_raw || idx == 0);
                 if idx > 0 {
-                    env_map[idx - 1] = free_vars.get_or_insert(name);
+                    env_map[idx - 1] = free_vars.get_or_insert(token);
                 }
             }
             expression_cache.new_lambda(env_map, body)
@@ -114,11 +118,11 @@ fn transform_impl<'a>(
     }
 }
 
-pub fn transform<'a>(root: &'a Node) -> (Rc<Expression>, Vec<&'a str>) {
+pub fn transform<'a>(root: &'a Node) -> (Rc<Expression>, Vec<&'a Token<'a>>) {
     let mut free_vars = VariableNameMap::new();
     let mut expression_cache = ExpressionCache::new();
     let expression = transform_impl(&root, &mut free_vars, &mut expression_cache);
-    let mut free_vars: Vec<(&&str, &usize)> = free_vars.map.iter().collect();
-    free_vars.sort_by_key(|&(_, v)| v);
-    (expression, free_vars.iter().map(|&(&k, _)| k).collect())
+    let mut free_vars: Vec<(usize, &Token)> = free_vars.map.into_iter().map(|(_, v)| v).collect();
+    free_vars.sort_by_key(|&(name, _)| name);
+    (expression, free_vars.iter().map(|&(_, token)| token).collect())
 }
