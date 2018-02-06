@@ -532,7 +532,7 @@
 
   # Basic IO
   # IO Bool
-  def ([IO] \_ __builtin_g False True _) \_getbit
+  def ([IO] \_ __builtin_g False True _ _) \_getbit
   # Bool -> IO ()
   def (Bool: \b [IO] (\_ if b (\_ __builtin_p1 _) (\_ __builtin_p0 _))) \_putbit
 

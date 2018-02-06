@@ -130,7 +130,7 @@ impl DebugLambda {
 impl<'a> Lambda<'a> for DebugLambda {
     fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         println!("[debug] arg = {:p}", arg.as_ref());
-        Ok((arg, false))
+        Ok((arg, true))
     }
 }
 
@@ -163,21 +163,20 @@ impl BitInputLambda {
 
 impl<'a> Lambda<'a> for BitInputLambda {
     fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
-        Ok((Rc::from(BitInputLambda1 { first_arg: arg }), true))
+        Ok((Rc::from(BitInputLambda1 { arg }), true))
     }
 }
 
 #[derive(Debug)]
 struct BitInputLambda1<'a> {
-    first_arg: RcLambda<'a>,
+    arg: RcLambda<'a>,
 }
 
 impl<'a> Lambda<'a> for BitInputLambda1<'a> {
     fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         Ok((
             Rc::from(BitInputLambda2 {
-                first_arg: Rc::clone(&self.first_arg),
-                second_arg: Rc::clone(&arg),
+                args: [Rc::clone(&self.arg), Rc::clone(&arg)],
             }),
             true,
         ))
@@ -186,17 +185,18 @@ impl<'a> Lambda<'a> for BitInputLambda1<'a> {
 
 #[derive(Debug)]
 struct BitInputLambda2<'a> {
-    first_arg: RcLambda<'a>,
-    second_arg: RcLambda<'a>,
+    args: [RcLambda<'a>; 2],
 }
 
 impl<'a> Lambda<'a> for BitInputLambda2<'a> {
     fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         Ok((
             Rc::from(BitInputLambda3 {
-                first_arg: Rc::clone(&self.first_arg),
-                second_arg: Rc::clone(&self.second_arg),
-                third_arg: Rc::clone(&arg),
+                args: [
+                    Rc::clone(&self.args[0]),
+                    Rc::clone(&self.args[1]),
+                    Rc::clone(&arg),
+                ],
             }),
             true,
         ))
@@ -205,24 +205,18 @@ impl<'a> Lambda<'a> for BitInputLambda2<'a> {
 
 #[derive(Debug)]
 struct BitInputLambda3<'a> {
-    first_arg: RcLambda<'a>,
-    second_arg: RcLambda<'a>,
-    third_arg: RcLambda<'a>,
+    args: [RcLambda<'a>; 3],
 }
 
 impl<'a> Lambda<'a> for BitInputLambda3<'a> {
     fn apply(&self, _arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         let bit = BIT_STDIN.lock().unwrap().read();
-        let arg = match bit {
-            Some(0) => &self.first_arg,
-            Some(1) => &self.second_arg,
-            None => &self.third_arg,
-            _ => unreachable!()
+        let arg_idx = match bit {
+            Some(b @ 0...1) => b as usize,
+            None => 2,
+            _ => unreachable!(),
         };
-        Ok((
-            Rc::clone(arg),
-            false,
-        ))
+        Ok((Rc::clone(&self.args[arg_idx]), false))
     }
 }
 
@@ -322,7 +316,10 @@ fn run_impl<'a>(
     }
 }
 
-pub fn run<'a>(expression: &'a Expression, free_vars: &'a Vec<&'a Token<'a>>) -> Result<(), Error<'a>> {
+pub fn run<'a>(
+    expression: &'a Expression,
+    free_vars: &'a Vec<&'a Token<'a>>,
+) -> Result<(), Error<'a>> {
     let mut undefined_vars: Vec<&Token> = vec![];
     let mut environment = BaseEnvironment::new();
     for name in free_vars.iter() {
