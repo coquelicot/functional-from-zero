@@ -191,14 +191,36 @@ struct BitInputLambda2<'a> {
 }
 
 impl<'a> Lambda<'a> for BitInputLambda2<'a> {
+    fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+        Ok((
+            Rc::from(BitInputLambda3 {
+                first_arg: Rc::clone(&self.first_arg),
+                second_arg: Rc::clone(&self.second_arg),
+                third_arg: Rc::clone(&arg),
+            }),
+            true,
+        ))
+    }
+}
+
+#[derive(Debug)]
+struct BitInputLambda3<'a> {
+    first_arg: RcLambda<'a>,
+    second_arg: RcLambda<'a>,
+    third_arg: RcLambda<'a>,
+}
+
+impl<'a> Lambda<'a> for BitInputLambda3<'a> {
     fn apply(&self, _arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         let bit = BIT_STDIN.lock().unwrap().read();
+        let arg = match bit {
+            Some(0) => &self.first_arg,
+            Some(1) => &self.second_arg,
+            None => &self.third_arg,
+            _ => unreachable!()
+        };
         Ok((
-            Rc::clone(if bit == 0 {
-                &self.first_arg
-            } else {
-                &self.second_arg
-            }),
+            Rc::clone(arg),
             false,
         ))
     }
