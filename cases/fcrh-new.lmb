@@ -405,6 +405,7 @@ def (chr (5 * 7)) \'#'
 def (chr (5 * 8)) \lbrace
 def (chr (inc (5 * 8))) \rbrace
 def (chr ((9 * 10) + 2)) \bslash
+def (chr ((9 * 10) + 5)) \'_'
 def (new Char $spc) \spc
 def (new Char $endl) \endl
 
@@ -654,34 +655,94 @@ def (
 
 # parser
 
-(Y \loop Map: \m
-  gets >>= \mcmd
-  if (is_nothing mcmd) (\_ return 0) \_
-  if (String::lt (from_just mcmd) ({ 's' 'e' 't' endl }))
-    # get
-    (\_
-      gets >>= \mkey
-      def (Map::lookup m (from_just mkey)) \mres
-      if (is_nothing mres)
-        (\_ puts ({ 'N' 'o' 't' spc 'f' 'o' 'u' 'n' 'd' endl }))
-        (\_ puts (from_just mres)) >>= \_
-      loop m
-    )
-    # set
-    (\_
-      gets >>= \mkey
-      gets >>= \mval
-      loop (Map::insert m (from_just mkey) (from_just mval))
-    )
-) EmptyMap
+# lmb = (expr, (arg, env))
+# expr = env -> IO lmb
 
-#read_all >>= \prog
-#mapM (
-#  String: \str
-#    puts ({ 'T' 'o' 'k' spc }) >>= \_
-#    puts str >>= \_
-#    putc endl
-#) (tokenize prog)
+def (
+  Y \parse_single_expr List: \toks
+
+    def (
+      Bool: \pop_rb List: \toks
+        def (parse_single_expr toks) \p
+        (Y \parse_multi_expr Func: \func List: \toks
+          if (emp? toks)
+            (\_ abort ({ 'Q' 'Q' })) \_
+          if (Char::eq (head (head toks)) rbrace)
+            (\_ if (pop_rb)
+              (\_ pair func (tail toks))
+              (\_ pair func toks)) \_
+          def (parse_single_expr toks) \p
+          def (
+            Map: \m
+            func m >>= \lfunc
+            (first p) m >>= \larg
+            (first lfunc) (Map::insert (second (second lfunc)) (first (second lfunc)) larg)
+          ) \apply
+          parse_multi_expr apply (second p)) (first p) (second p)
+    ) \parse_multi_expr
+
+    if (emp? toks)
+      (\_ abort ({ 'Q' 'Q' })) \_
+
+    def (head toks) \tok
+    if (Char::eq (head tok) rbrace)
+      (\_ abort ({ 'Q' 'Q' 'Q' })) \_
+
+    if (Char::eq (head tok) lbrace)
+      (\_ parse_multi_expr True (tail toks)) \_
+
+    if (Char::eq (head tok) bslash)
+      # lambda
+      (\_
+        def (head (tail toks)) \arg
+        def (tail (tail toks)) \toks
+        if (is_spe (head arg))
+          (\_ abort ({ 'Q' })) \_
+        def (parse_multi_expr False toks) \p
+        pair (Map: \m return (pair (first p) (pair arg m))) (second p)
+      ) \_
+
+    # ident
+    pair (Map: \m return (from_just (Map::lookup m tok))) (tail toks)
+) \parse_single_expr
+
+read_all >>= \prog
+def (parse_single_expr (tokenize prog)) \result
+
+if (not (emp? (second result)))
+  (\_ abort ({ 'I' 'n' 'v' 'a' 'l' 'i' 'd' })) \_
+def (first result) \expr
+
+def (pair (Map: \_ abort ({ 'g' 'g' })) (pair ({ '_' }) EmptyMap)) \dummy
+
+def EmptyMap \m
+def (
+  Map::insert
+    m
+    ({ '_' '_' 'b' 'u' 'i' 'l' 't' 'i' 'n' '_' 'p' '0' })
+    (pair (Map: \m putb 0 >>= \_ return dummy) (pair ({ '_' }) EmptyMap))
+) \m
+def (
+  Map::insert
+    m
+    ({ '_' '_' 'b' 'u' 'i' 'l' 't' 'i' 'n' '_' 'p' '1' })
+    (pair (Map: \m putb 1 >>= \_ return dummy) (pair ({ '_' }) EmptyMap))
+) \m
+def (
+  Map::insert
+    m
+    ({ '_' '_' 'b' 'u' 'i' 'l' 't' 'i' 'n' '_' 'g' })
+    (pair (
+      Map: \m return (pair (
+        Map: \m return (pair (
+          Map: \m return (pair (
+            Map: \m abort ({ 'T' 'O' 'D' 'O' })
+          ) (pair ({ '_' }) m))
+        ) (pair ({ '3' }) m))
+      ) (pair ({ '2' }) m))
+    ) (pair ({ '1' }) EmptyMap))
+) \m
+expr m
 
 # epilogue {{{
 ) \v \f f v)
