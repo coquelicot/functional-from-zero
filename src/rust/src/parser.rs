@@ -66,28 +66,24 @@ where
         TokenType::Identifier(name) => Ok(Node::Identifier(name)),
         TokenType::LeftParen => {
             let expression = parse_multi(tokens)?;
-            if let Some(&Token {
-                token_type: TokenType::RightParen,
-                ..
-            }) = tokens.next()
-            {
-                return Ok(expression);
+            let token = tokens.next().expect(EOF_TOKEN_MISSING);
+            match token.token_type {
+                TokenType::RightParen => Ok(expression),
+                _ => Err(Error::new(ErrorType::MissingRightParen, token)),
             }
-            Err(Error::new(ErrorType::MissingRightParen, &token))
         }
-        TokenType::RightParen => Err(Error::new(ErrorType::ExtraRightParen, &token)),
+        TokenType::RightParen => Err(Error::new(ErrorType::ExtraRightParen, token)),
         TokenType::LambdaStart => {
-            if let Some(&Token {
-                token_type: TokenType::Identifier(name),
-                ..
-            }) = tokens.next()
-            {
-                let expression = parse_multi(tokens)?;
-                return Ok(Node::Lambda(name, Box::new(expression)));
+            let token = tokens.next().expect(EOF_TOKEN_MISSING);
+            match token.token_type {
+                TokenType::Identifier(name) => {
+                    let expression = parse_multi(tokens)?;
+                    Ok(Node::Lambda(name, Box::new(expression)))
+                }
+                _ => Err(Error::new(ErrorType::MissingLambdaArg, token)),
             }
-            Err(Error::new(ErrorType::MissingLambdaArg, &token))
         }
-        TokenType::EndOfFile => Err(Error::new(ErrorType::EOFReached, &token)),
+        TokenType::EndOfFile => Err(Error::new(ErrorType::EOFReached, token)),
         TokenType::WhiteSpace => unreachable!(),
     }
 }
