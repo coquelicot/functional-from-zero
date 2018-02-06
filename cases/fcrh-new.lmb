@@ -408,6 +408,13 @@ def (chr ((9 * 10) + 2)) \bslash
 def (new Char $spc) \spc
 def (new Char $endl) \endl
 
+def (Char: \a Char: \b new Bool ($lt (value_of a) (value_of b))) \Char::lt
+def (Char: \a Char: \b new Bool ($gt (value_of a) (value_of b))) \Char::gt
+def (Char: \a Char: \b new Bool ($leq (value_of a) (value_of b))) \Char::leq
+def (Char: \a Char: \b new Bool ($geq (value_of a) (value_of b))) \Char::geq
+def (Char: \a Char: \b new Bool ($neq (value_of a) (value_of b))) \Char::neq
+def (Char: \a Char: \b new Bool ($eq (value_of a) (value_of b))) \Char::eq
+
 def (\v new Char v) \$to_char
 def (Char: \c value_of c) \$from_char
 # }}}
@@ -417,6 +424,15 @@ def (Char: \c value_of c) \$from_char
 def (\lmb List: \xs lmb (foldr (Char: \c List: \str : c str) [] xs)) \String:
 def (\xs $to_list ($foldr (\c \ys $: ($to_char c) ys) $[] xs)) \$to_str
 def (String: \xs $foldr (Char: \c \ys $: ($from_char c) ys) $[] ($from_list xs)) \$from_str
+
+def (
+  Y \_lt String: \a String: \b
+    if (emp? b) (\_ False) \_
+    if (emp? a) (\_ True) \_
+    if (Char::neq (head a) (head b))
+      (\_ Char::lt (head a) (head b))
+      (\_ _lt (tail a) (tail b))
+) \String::lt
 # }}}
 
 # Type!!!! {{{
@@ -536,10 +552,51 @@ def (
 (\p _run_io (p .)) \_
 # }}}
 
+# Map {{{
+
+type ({ 'M' 'a' 'p' }) \Map \Map:
+def (new Map (pair True True)) \_nil
+def (
+  String: \key Any: \val Map: \lch Map: \rch
+  new Map (pair False (pair (pair key val) (pair lch rch)))
+) \_new_node
+def (Map: \m first (value_of m)) \_is_nil
+def (Map: \m first (second (value_of m))) \_node_vk
+def (Map: \m first (_node_vk m)) \_node_key
+def (Map: \m second (_node_vk m)) \_node_val
+def (Map: \m first (second (second (value_of m)))) \_node_lch
+def (Map: \m second (second (second (value_of m)))) \_node_rch
+
+def _nil \EmptyMap
+def (
+  Y \lookup Map: \m String: \key
+    if (_is_nil m)
+      (\_ Nothing) \_
+    if (String::lt key (_node_key m))
+      (\_ lookup (_node_lch m) key) \_
+    if (String::lt (_node_key m) key)
+      (\_ lookup (_node_rch m) key) \_
+    Just (_node_val m)
+) \Map::lookup
+def (
+  Y \insert Map: \m String: \key Any: \val
+    if (_is_nil m)
+      (\_ _new_node key val _nil _nil) \_
+    if (String::lt key (_node_key m))
+      (\_ _new_node (_node_key m) (_node_val m) (insert (_node_lch m) key val) (_node_rch m)) \_
+    if (String::lt (_node_key m) key)
+      (\_ _new_node (_node_key m) (_node_val m) (_node_lch m) (insert (_node_rch m) key val)) \_
+    _new_node key val (_node_lch m) (_node_rch m)
+) \Map::insert
+
+# }}}
+
+# reader
+
 def (
   Char: \c
-  if ((ord c) == (ord spc)) (\_ True) \_
-  if ((ord c) == (ord endl)) (\_ True) \_
+  if (Char::eq c spc) (\_ True) \_
+  if (Char::eq c endl) (\_ True) \_
   False
 ) \is_space
 
@@ -549,7 +606,7 @@ def (
       (\_ False)
       (\_ if (is_space (head str))
         (\_ is_comment (tail str))
-        (\_ (ord (head str)) == (ord '#')))
+        (\_ Char::eq (head str) '#'))
 ) \is_comment
 
 def (
@@ -565,11 +622,13 @@ def (
           (\_ return (concat line rest)))
 ) \read_all
 
+# tokenizer
+
 def (
   Char: \ch
-  if ((ord ch) == (ord lbrace)) (\_ True) \_
-  if ((ord ch) == (ord rbrace)) (\_ True) \_
-  if ((ord ch) == (ord bslash)) (\_ True) \_
+  if (Char::eq ch lbrace) (\_ True) \_
+  if (Char::eq ch rbrace) (\_ True) \_
+  if (Char::eq ch bslash) (\_ True) \_
   False
 ) \is_spe
 
@@ -593,13 +652,36 @@ def (
       get_ident (: ch rid) (head str) (tail str)) [] ch (tail str)
 ) \tokenize
 
-read_all >>= \prog
-mapM (
-  String: \str
-    puts ({ 'T' 'o' 'k' spc }) >>= \_
-    puts str >>= \_
-    putc endl
-) (tokenize prog)
+# parser
+
+(Y \loop Map: \m
+  gets >>= \mcmd
+  if (is_nothing mcmd) (\_ return 0) \_
+  if (String::lt (from_just mcmd) ({ 's' 'e' 't' endl }))
+    # get
+    (\_
+      gets >>= \mkey
+      def (Map::lookup m (from_just mkey)) \mres
+      if (is_nothing mres)
+        (\_ puts ({ 'N' 'o' 't' spc 'f' 'o' 'u' 'n' 'd' endl }))
+        (\_ puts (from_just mres)) >>= \_
+      loop m
+    )
+    # set
+    (\_
+      gets >>= \mkey
+      gets >>= \mval
+      loop (Map::insert m (from_just mkey) (from_just mval))
+    )
+) EmptyMap
+
+#read_all >>= \prog
+#mapM (
+#  String: \str
+#    puts ({ 'T' 'o' 'k' spc }) >>= \_
+#    puts str >>= \_
+#    putc endl
+#) (tokenize prog)
 
 # epilogue {{{
 ) \v \f f v)
