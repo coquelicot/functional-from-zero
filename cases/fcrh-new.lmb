@@ -350,6 +350,7 @@ def (new List $[]) \[]
 def (Any: \x List: \xs new List ($: x (value_of xs))) \:
 def (List: \xs $head (value_of xs)) \head
 def (List: \xs new List ($tail (value_of xs))) \tail
+def (List: \xs new Bool ($emp? (value_of xs))) \emp?
 
 def (Func: \f Any: \acc List: \xs $foldl f acc (value_of xs)) \foldl
 def (Func: \f Any: \acc List: \xs $foldr f acc (value_of xs)) \foldr
@@ -399,6 +400,11 @@ def (new Char $'p') \'p' def (new Char $'q') \'q' def (new Char $'r') \'r' def (
 def (new Char $'u') \'u' def (new Char $'v') \'v' def (new Char $'w') \'w' def (new Char $'x') \'x' def (new Char $'y') \'y'
 def (new Char $'z') \'z'
 def (new Char $'{') \'{' def (new Char $'|') \'|' def (new Char $'}') \'}'
+def (chr (5 * 7)) \'#'
+# FIXME: sooo ugly
+def (chr (5 * 8)) \lbrace
+def (chr (inc (5 * 8))) \rbrace
+def (chr ((9 * 10) + 2)) \bslash
 def (new Char $spc) \spc
 def (new Char $endl) \endl
 
@@ -408,8 +414,9 @@ def (Char: \c value_of c) \$from_char
 
 # String {{{
 # just List of Char
+def (\lmb List: \xs lmb (foldr (Char: \c List: \str : c str) [] xs)) \String:
 def (\xs $to_list ($foldr (\c \ys $: ($to_char c) ys) $[] xs)) \$to_str
-def (List: \xs $foldr (Char: \c \ys $: ($from_char c) ys) $[] ($from_list xs)) \$from_str
+def (String: \xs $foldr (Char: \c \ys $: ($from_char c) ys) $[] ($from_list xs)) \$from_str
 # }}}
 
 # Type!!!! {{{
@@ -419,7 +426,7 @@ def (List: \xs $foldr (Char: \c \ys $: ($from_char c) ys) $[] ($from_list xs)) \
 # we must hide the native tid string with an special type "Type"
 def ($from_str({ 'T' 'y' 'p' 'e' })) \Type
 def ($arg_type_check Type) \Type:
-def (List: \xs \p p (new Type ($from_str xs)) ($arg_type_check ($from_str xs))) \type
+def (String: \xs \p p (new Type ($from_str xs)) ($arg_type_check ($from_str xs))) \type
 
 # redefine builtin types
 def (new Type Bool) \Bool
@@ -435,7 +442,7 @@ def (Type: \t new (value_of t)) \new
 
 # utils
 def (Type: \t Any: \v $if ($instance_of (value_of t) v) (\_ True) (\_ False)) \instance_of
-def (List: \str $abort ($from_str str)) \abort
+def (String: \str $abort ($from_str str)) \abort
 # }}}
 
 # Maybe {{{
@@ -513,16 +520,86 @@ def (
           (\_ return Nothing)
           (\_ getc (n - 1) ((v * 2) + (from_just m))))) 8 0
 ) \getc
+def (
+  (Y \gets String: \str
+    getc >>= \c
+    if (is_nothing c)
+      # what if we already have something in str?
+      (\_ return Nothing)
+      # TODO: char compare
+      (\_ if ((ord (from_just c)) == (ord endl))
+        (\_ return (Just (reverse (: endl str))))
+        (\_ gets (: (from_just c) str)))) []
+) \gets
+
+# Enter IO
+(\p _run_io (p .)) \_
 # }}}
 
-_run_io (
-  (Y \loop
-    getc >>= \ma
-    if (is_just ma)
-      (\_ putc (from_just ma) >>= \_ loop)
-      (\_ return 0)) >>= \_
-  puts ({ 'E' 'n' 'd' endl })
-)
+def (
+  Char: \c
+  if ((ord c) == (ord spc)) (\_ True) \_
+  if ((ord c) == (ord endl)) (\_ True) \_
+  False
+) \is_space
+
+def (
+  Y \is_comment String: \str
+    if (emp? str)
+      (\_ False)
+      (\_ if (is_space (head str))
+        (\_ is_comment (tail str))
+        (\_ (ord (head str)) == (ord '#')))
+) \is_comment
+
+def (
+  Y \read_all
+    gets >>= \ms
+    if (is_nothing ms)
+      (\_ return [])
+      (\_
+        def (from_just ms) \line
+        read_all >>= \rest
+        if (is_comment line)
+          (\_ return rest)
+          (\_ return (concat line rest)))
+) \read_all
+
+def (
+  Char: \ch
+  if ((ord ch) == (ord lbrace)) (\_ True) \_
+  if ((ord ch) == (ord rbrace)) (\_ True) \_
+  if ((ord ch) == (ord bslash)) (\_ True) \_
+  False
+) \is_spe
+
+def (
+  Y \tokenize String: \str
+
+    if (emp? str)
+      (\_ []) \_
+
+    def (head str) \ch
+    if (is_space ch)
+      (\_ tokenize (tail str)) \_
+    if (is_spe ch)
+      (\_ : ({ ch }) (tokenize (tail str))) \_
+
+    (Y \get_ident String: \rid Char: \ch String: \str
+      if (or (is_space ch) (is_spe ch))
+        (\_ : (reverse rid) (tokenize (: ch str))) \_
+      if (emp? str)
+        (\_ : (reverse (: ch rid)) []) \_
+      get_ident (: ch rid) (head str) (tail str)) [] ch (tail str)
+) \tokenize
+
+read_all >>= \prog
+mapM (
+  String: \str
+    puts ({ 'T' 'o' 'k' spc }) >>= \_
+    puts str >>= \_
+    putc endl
+) (tokenize prog)
 
 # epilogue {{{
 ) \v \f f v)
