@@ -563,8 +563,47 @@ def (
 (\p _run_io (p .)) \_
 # }}}
 
-# Map {{{
+# Array 2**k {{{
+# (k, (tree))
+type ({ 'A' 'r' 'r' 'a' 'y' }) \Array \Array:
+def (Int: \k new Array (pair k Nothing)) \make_array
 
+def (
+  (Y \i2b List: \xs Int: \n Int: \v
+    if (0 == n)
+      (\_ xs)
+      (\_ i2b (: (v % 2) xs) (dec n) (v / 2))) []
+) \_i2b
+
+def (
+  def (
+    Y \get List: \xs Maybe: \n
+      if (emp? xs) (\_ n) \_
+      if (is_nothing n) (\_ Nothing) \_
+      if (0 == (head xs))
+        (\_ get (tail xs) (first (from_just n)))
+        (\_ get (tail xs) (second (from_just n)))
+  ) \get
+  Array: \ary Int: \idx
+    get (_i2b (first (value_of ary)) idx) (second (value_of ary))
+) \Array::get
+
+def (
+  def (
+    Y \set List: \xs Maybe: \n Any: \val
+      if (emp? xs) (\_ Just val) \_
+      def (if (is_nothing n) (\_ Nothing) (\_ first (from_just n))) \lch
+      def (if (is_nothing n) (\_ Nothing) (\_ second (from_just n))) \rch
+      if (0 == (head xs))
+        (\_ Just (pair (set (tail xs) lch val) rch))
+        (\_ Just (pair lch (set (tail xs) rch val)))
+  ) \set
+  Array: \ary Int: \idx Any: \val
+    new Array (pair (first (value_of ary)) (set (_i2b (first (value_of ary)) idx) (second (value_of ary)) val))
+) \Array::set
+# }}}
+
+# Map {{{
 type ({ 'M' 'a' 'p' }) \Map \Map:
 def (new Map (pair True True)) \_nil
 def (
@@ -608,7 +647,38 @@ def (
     def (_items xs (_node_rch n)) \xs
     xs) []
 ) \Map::items
+# }}}
 
+# Trie {{{
+type ({ 'T' 'r' 'i' 'e' }) \Trie \Trie:
+def (new Trie (pair Nothing (make_array 8))) \EmptyTrie
+
+def (
+  def (
+    Y \get Pair: \p String: \key
+      if (emp? key)
+        (\_ first p) \_
+      def (Array::get (second p) (ord (head key))) \mt
+      if (is_nothing mt)
+        (\_ Nothing) \_
+      get (from_just mt) (tail key)
+  ) \get
+  Trie: \t String: \key
+    get (value_of t) key
+) \Trie::get
+
+def (
+  def (
+    Y \set Pair: \p String: \key Any: \val
+      if (emp? key)
+        (\_ pair (Just val) (second p)) \_
+      def (Array::get (second p) (ord (head key))) \mt
+      def (if (is_nothing mt) (\_ value_of EmptyTrie) (\_ from_just mt)) \np
+      pair (first p) (Array::set (second p) (ord (head key)) (set np (tail key) val))
+  ) \set
+  Trie: \t String: \key Any: \val
+    new Trie (set (value_of t) key val)
+) \Trie::set
 # }}}
 
 # reader
@@ -694,10 +764,10 @@ def (
                 (\_ pair func (pair cenv toks))) \_
             def (parse_single_expr cenv toks) \p
             def (
-              Map: \m
-              func m >>= \lfunc
-              (first p) m >>= \larg
-              (first lfunc) (Map::insert (second (second lfunc)) (first (second lfunc)) larg)
+              Trie: \env
+              func env >>= \lfunc
+              (first p) env >>= \larg
+              (first lfunc) (Trie::set (second (second lfunc)) (first (second lfunc)) larg)
             ) \apply
             parse_multi_expr apply (first (second p)) (second (second p))
         ) \_parse
@@ -733,14 +803,14 @@ def (
           ) cenv (Map::items ncenv)
         ) \cenv
         pair (
-          Map: \m
+          Trie: \env
           def (
             foldl (
-              Map: \nm Pair: \it
+              Trie: \nenv Pair: \it
               if (String::eq arg (first it))
-                (\_ nm)
-                (\_ Map::insert nm (first it) (from_just (Map::lookup m (first it))))
-            ) EmptyMap (Map::items ncenv)
+                (\_ nenv)
+                (\_ Trie::set nenv (first it) (from_just (Trie::get env (first it))))
+            ) EmptyTrie (Map::items ncenv)
           ) \nm
           return (pair (first p) (pair arg nm))
         ) (pair cenv (second (second p)))
@@ -748,52 +818,52 @@ def (
 
     # ident
     pair
-      (Map: \m return (from_just (Map::lookup m tok)))
+      (Trie: \env return (from_just (Trie::get env tok)))
       (pair (Map::insert cenv tok True) (tail toks))
 ) \parse_single_expr
 
 # builtin env
 
-def (pair (Map: \_ abort ({ 'g' 'g' })) (pair ({ '_' }) EmptyMap)) \dummy
+def (pair (Trie: \_ abort ({ 'g' 'g' })) (pair ({ '_' }) EmptyTrie)) \dummy
 
-def EmptyMap \env
+def EmptyTrie \env
 def (
-  Map::insert
+  Trie::set
     env
     ({ '_' '_' 'b' 'u' 'i' 'l' 't' 'i' 'n' '_' 'p' '0' })
-    (pair (Map: \m putb 0 >>= \_ return dummy) (pair ({ '_' }) EmptyMap))
+    (pair (Trie: \env putb 0 >>= \_ return dummy) (pair ({ '_' }) EmptyTrie))
 ) \env
 def (
-  Map::insert
+  Trie::set
     env
     ({ '_' '_' 'b' 'u' 'i' 'l' 't' 'i' 'n' '_' 'p' '1' })
-    (pair (Map: \m putb 1 >>= \_ return dummy) (pair ({ '_' }) EmptyMap))
+    (pair (Trie: \env putb 1 >>= \_ return dummy) (pair ({ '_' }) EmptyTrie))
 ) \env
 def (
-  Map::insert
+  Trie::set
     env
     ({ '_' '_' 'b' 'u' 'i' 'l' 't' 'i' 'n' '_' 'g' })
     (pair (
-      Map: \m return (pair (
-        Map: \m return (pair (
-          Map: \m return (pair (
-            Map: \m
+      Trie: \env return (pair (
+        Trie: \env return (pair (
+          Trie: \env return (pair (
+            Trie: \env
             getb >>= \mb
             if (is_nothing mb)
-              (\_ return (from_just (Map::lookup m ({ '3' })))) \_
+              (\_ return (from_just (Trie::get env ({ '3' })))) \_
             if (0 == (from_just mb))
-              (\_ return (from_just (Map::lookup m ({ '1' }))))
-              (\_ return (from_just (Map::lookup m ({ '2' }))))
-          ) (pair ({ '_' }) m))
-        ) (pair ({ '3' }) m))
-      ) (pair ({ '2' }) m))
-    ) (pair ({ '1' }) EmptyMap))
+              (\_ return (from_just (Trie::get env ({ '1' }))))
+              (\_ return (from_just (Trie::get env ({ '2' }))))
+          ) (pair ({ '_' }) env))
+        ) (pair ({ '3' }) env))
+      ) (pair ({ '2' }) env))
+    ) (pair ({ '1' }) EmptyTrie))
 ) \env
 
 # go!
 
 read_all >>= \prog
-def (parse_single_expr env (tokenize prog)) \result
+def (parse_single_expr EmptyMap (tokenize prog)) \result
 
 if (not (emp? (second (second result))))
   (\_ abort ({ 'I' 'n' 'v' 'a' 'l' 'i' 'd' })) \_
