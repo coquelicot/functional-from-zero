@@ -35,7 +35,7 @@ impl<'a> fmt::Display for Token<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.location)?;
         if !self.token_raw.is_empty() {
-            write!(f, " (near token {})", self.token_raw)?;
+            write!(f, " (near token '{}')", self.token_raw)?;
         }
         Ok(())
     }

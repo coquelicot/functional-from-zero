@@ -38,9 +38,9 @@ fn main() {
             // println!("expression = {:?}", expression);
             // println!("free_vars = {:?}", free_vars);
             if let Err(error) = runner::run(&expression, &free_vars) {
-                println!("Runtime error: {}", error)
+                println!("Runtime error:\n  {}", error)
             }
         }
-        Err(error) => println!("Error when parsing expression: {}", error),
+        Err(error) => println!("Error when parsing expression:\n  {}", error),
     }
 }

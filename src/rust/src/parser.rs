@@ -1,6 +1,6 @@
 use std::{error, fmt, iter};
 
-use super::tokenizer::{Location, Token, TokenType};
+use super::tokenizer::{Token, TokenType};
 
 #[derive(Debug)]
 pub enum Node<'a> {
@@ -18,21 +18,18 @@ pub enum ErrorType {
 }
 
 #[derive(Debug)]
-pub struct Error {
+pub struct Error<'a> {
     error_type: ErrorType,
-    location: Location,
+    token: &'a Token<'a>,
 }
 
-impl Error {
-    fn new(error_type: ErrorType, token: &Token) -> Error {
-        Error {
-            error_type,
-            location: token.location.clone(),
-        }
+impl<'a> Error<'a> {
+    fn new(error_type: ErrorType, token: &'a Token<'a>) -> Error<'a> {
+        Error { error_type, token }
     }
 }
 
-impl error::Error for Error {
+impl<'a> error::Error for Error<'a> {
     fn description(&self) -> &str {
         match self.error_type {
             ErrorType::EOFReached => "unexpected EOF reached",
@@ -45,9 +42,9 @@ impl error::Error for Error {
 
 const EOF_TOKEN_MISSING: &str = "EOF Token missing QQ";
 
-impl fmt::Display for Error {
+impl<'a> fmt::Display for Error<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "At {}: ", self.location)?;
+        write!(f, "At {}: ", self.token)?;
         match self.error_type {
             ErrorType::EOFReached => write!(f, "Unexpected EOF found when parsing expression."),
             ErrorType::ExtraRightParen => write!(f, "Extra ) in expression."),
@@ -57,7 +54,7 @@ impl fmt::Display for Error {
     }
 }
 
-fn parse_single<'a, I>(tokens: &mut iter::Peekable<I>) -> Result<Node<'a>, Error>
+fn parse_single<'a, I>(tokens: &mut iter::Peekable<I>) -> Result<Node<'a>, Error<'a>>
 where
     I: Iterator<Item = &'a Token<'a>>,
 {
@@ -88,7 +85,7 @@ where
     }
 }
 
-fn parse_multi<'a, I>(tokens: &mut iter::Peekable<I>) -> Result<Node<'a>, Error>
+fn parse_multi<'a, I>(tokens: &mut iter::Peekable<I>) -> Result<Node<'a>, Error<'a>>
 where
     I: Iterator<Item = &'a Token<'a>>,
 {
@@ -107,7 +104,7 @@ where
     Ok(expression)
 }
 
-pub fn parse<'a>(tokens: &'a [Token]) -> Result<Node<'a>, Error> {
+pub fn parse<'a>(tokens: &'a [Token]) -> Result<Node<'a>, Error<'a>> {
     let mut token_iter = tokens
         .iter()
         .filter(|x| match x.token_type {
@@ -119,6 +116,6 @@ pub fn parse<'a>(tokens: &'a [Token]) -> Result<Node<'a>, Error> {
     let extra_token = token_iter.next().expect(EOF_TOKEN_MISSING);
     match extra_token.token_type {
         TokenType::EndOfFile => Ok(expression),
-        _ => Err(Error::new(ErrorType::ExtraRightParen, &extra_token)),
+        _ => Err(Error::new(ErrorType::ExtraRightParen, extra_token)),
     }
 }
