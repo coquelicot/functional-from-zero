@@ -571,34 +571,43 @@ def (
   String: \key Any: \val Map: \lch Map: \rch
   new Map (pair False (pair (pair key val) (pair lch rch)))
 ) \_new_node
-def (Map: \m first (value_of m)) \_is_nil
-def (Map: \m first (second (value_of m))) \_node_vk
-def (Map: \m first (_node_vk m)) \_node_key
-def (Map: \m second (_node_vk m)) \_node_val
-def (Map: \m first (second (second (value_of m)))) \_node_lch
-def (Map: \m second (second (second (value_of m)))) \_node_rch
+def (Map: \n first (value_of n)) \_is_nil
+def (Map: \n first (second (value_of n))) \_node_vk
+def (Map: \n first (_node_vk n)) \_node_key
+def (Map: \n second (_node_vk n)) \_node_val
+def (Map: \n first (second (second (value_of n)))) \_node_lch
+def (Map: \n second (second (second (value_of n)))) \_node_rch
 
 def _nil \EmptyMap
 def (
-  Y \lookup Map: \m String: \key
-    if (_is_nil m)
+  Y \lookup Map: \n String: \key
+    if (_is_nil n)
       (\_ Nothing) \_
-    if (String::lt key (_node_key m))
-      (\_ lookup (_node_lch m) key) \_
-    if (String::lt (_node_key m) key)
-      (\_ lookup (_node_rch m) key) \_
-    Just (_node_val m)
+    if (String::lt key (_node_key n))
+      (\_ lookup (_node_lch n) key) \_
+    if (String::lt (_node_key n) key)
+      (\_ lookup (_node_rch n) key) \_
+    Just (_node_val n)
 ) \Map::lookup
 def (
-  Y \insert Map: \m String: \key Any: \val
-    if (_is_nil m)
+  Y \insert Map: \n String: \key Any: \val
+    if (_is_nil n)
       (\_ _new_node key val _nil _nil) \_
-    if (String::lt key (_node_key m))
-      (\_ _new_node (_node_key m) (_node_val m) (insert (_node_lch m) key val) (_node_rch m)) \_
-    if (String::lt (_node_key m) key)
-      (\_ _new_node (_node_key m) (_node_val m) (_node_lch m) (insert (_node_rch m) key val)) \_
-    _new_node key val (_node_lch m) (_node_rch m)
+    if (String::lt key (_node_key n))
+      (\_ _new_node (_node_key n) (_node_val n) (insert (_node_lch n) key val) (_node_rch n)) \_
+    if (String::lt (_node_key n) key)
+      (\_ _new_node (_node_key n) (_node_val n) (_node_lch n) (insert (_node_rch n) key val)) \_
+    _new_node key val (_node_lch n) (_node_rch n)
 ) \Map::insert
+def (
+  (Y \_items List: \xs Map: \n
+    if (_is_nil n)
+      (\_ xs) \_
+    def (: (pair (_node_key n) (_node_val n)) xs) \xs
+    def (_items xs (_node_lch n)) \xs
+    def (_items xs (_node_rch n)) \xs
+    xs) []
+) \Map::items
 
 # }}}
 
@@ -668,28 +677,32 @@ def (
 
 # lmb = (expr, (arg, env))
 # expr = env -> IO lmb
+# result = (expr, (env, tok))
 
 def (
-  Y \parse_single_expr List: \toks
+  Y \parse_single_expr Map: \cenv List: \toks
 
     def (
-      Bool: \pop_rb List: \toks
-        def (parse_single_expr toks) \p
-        (Y \parse_multi_expr Func: \func List: \toks
-          if (emp? toks)
-            (\_ abort ({ 'Q' 'Q' })) \_
-          if (Char::eq (head (head toks)) rbrace)
-            (\_ if (pop_rb)
-              (\_ pair func (tail toks))
-              (\_ pair func toks)) \_
-          def (parse_single_expr toks) \p
-          def (
-            Map: \m
-            func m >>= \lfunc
-            (first p) m >>= \larg
-            (first lfunc) (Map::insert (second (second lfunc)) (first (second lfunc)) larg)
-          ) \apply
-          parse_multi_expr apply (second p)) (first p) (second p)
+      Bool: \pop_rb Map: \cenv List: \toks
+        def (
+          Y \parse_multi_expr Func: \func Map: \cenv List: \toks
+            if (emp? toks)
+              (\_ abort ({ 'Q' 'Q' })) \_
+            if (Char::eq (head (head toks)) rbrace)
+              (\_ if (pop_rb)
+                (\_ pair func (pair cenv (tail toks)))
+                (\_ pair func (pair cenv toks))) \_
+            def (parse_single_expr cenv toks) \p
+            def (
+              Map: \m
+              func m >>= \lfunc
+              (first p) m >>= \larg
+              (first lfunc) (Map::insert (second (second lfunc)) (first (second lfunc)) larg)
+            ) \apply
+            parse_multi_expr apply (first (second p)) (second (second p))
+        ) \_parse
+        def (parse_single_expr cenv toks) \p
+        _parse (first p) (first (second p)) (second (second p))
     ) \parse_multi_expr
 
     if (emp? toks)
@@ -700,7 +713,7 @@ def (
       (\_ abort ({ 'Q' 'Q' 'Q' })) \_
 
     if (Char::eq (head tok) lbrace)
-      (\_ parse_multi_expr True (tail toks)) \_
+      (\_ parse_multi_expr True cenv (tail toks)) \_
 
     if (Char::eq (head tok) bslash)
       # lambda
@@ -709,39 +722,56 @@ def (
         def (tail (tail toks)) \toks
         if (is_spe (head arg))
           (\_ abort ({ 'Q' })) \_
-        def (parse_multi_expr False toks) \p
-        pair (Map: \m return (pair (first p) (pair arg m))) (second p)
+        def (parse_multi_expr False EmptyMap toks) \p
+        def (first (second p)) \ncenv
+        def (
+          foldl (
+            Map: \cenv Pair: \it
+            if (String::eq arg (first it))
+              (\_ cenv)
+              (\_ Map::insert cenv (first it) True)
+          ) cenv (Map::items ncenv)
+        ) \cenv
+        pair (
+          Map: \m
+          def (
+            foldl (
+              Map: \nm Pair: \it
+              if (String::eq arg (first it))
+                (\_ nm)
+                (\_ Map::insert nm (first it) (from_just (Map::lookup m (first it))))
+            ) EmptyMap (Map::items ncenv)
+          ) \nm
+          return (pair (first p) (pair arg nm))
+        ) (pair cenv (second (second p)))
       ) \_
 
     # ident
-    pair (Map: \m return (from_just (Map::lookup m tok))) (tail toks)
+    pair
+      (Map: \m return (from_just (Map::lookup m tok)))
+      (pair (Map::insert cenv tok True) (tail toks))
 ) \parse_single_expr
 
-read_all >>= \prog
-def (parse_single_expr (tokenize prog)) \result
-
-if (not (emp? (second result)))
-  (\_ abort ({ 'I' 'n' 'v' 'a' 'l' 'i' 'd' })) \_
-def (first result) \expr
+# builtin env
 
 def (pair (Map: \_ abort ({ 'g' 'g' })) (pair ({ '_' }) EmptyMap)) \dummy
 
-def EmptyMap \m
+def EmptyMap \env
 def (
   Map::insert
-    m
+    env
     ({ '_' '_' 'b' 'u' 'i' 'l' 't' 'i' 'n' '_' 'p' '0' })
     (pair (Map: \m putb 0 >>= \_ return dummy) (pair ({ '_' }) EmptyMap))
-) \m
+) \env
 def (
   Map::insert
-    m
+    env
     ({ '_' '_' 'b' 'u' 'i' 'l' 't' 'i' 'n' '_' 'p' '1' })
     (pair (Map: \m putb 1 >>= \_ return dummy) (pair ({ '_' }) EmptyMap))
-) \m
+) \env
 def (
   Map::insert
-    m
+    env
     ({ '_' '_' 'b' 'u' 'i' 'l' 't' 'i' 'n' '_' 'g' })
     (pair (
       Map: \m return (pair (
@@ -758,8 +788,17 @@ def (
         ) (pair ({ '3' }) m))
       ) (pair ({ '2' }) m))
     ) (pair ({ '1' }) EmptyMap))
-) \m
-expr m
+) \env
+
+# go!
+
+read_all >>= \prog
+def (parse_single_expr env (tokenize prog)) \result
+
+if (not (emp? (second (second result))))
+  (\_ abort ({ 'I' 'n' 'v' 'a' 'l' 'i' 'd' })) \_
+
+(first result) env
 
 # epilogue {{{
 ) \v \f f v)
