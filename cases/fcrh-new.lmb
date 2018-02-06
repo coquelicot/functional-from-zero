@@ -434,6 +434,16 @@ def (
       (\_ Char::lt (head a) (head b))
       (\_ _lt (tail a) (tail b))
 ) \String::lt
+
+def (
+  String: \a String: \b
+  or (String::lt a b) (String::lt b a)
+) \String::neq
+
+def (
+  String: \a String: \b
+  not (String::neq a b)
+) \String::eq
 # }}}
 
 # Type!!!! {{{
@@ -594,6 +604,8 @@ def (
 
 # reader
 
+def ({ '#' '#' '#' '#' '#' endl }) \SEP
+
 def (
   Char: \c
   if (Char::eq c spc) (\_ True) \_
@@ -613,14 +625,13 @@ def (
 def (
   Y \read_all
     gets >>= \ms
-    if (is_nothing ms)
-      (\_ return [])
-      (\_
-        def (from_just ms) \line
-        read_all >>= \rest
-        if (is_comment line)
-          (\_ return rest)
-          (\_ return (concat line rest)))
+    if (is_nothing ms) (\_ return []) \_
+    def (from_just ms) \line
+    if (String::eq line SEP) (\_ return []) \_
+    read_all >>= \rest
+    if (is_comment line)
+      (\_ return rest)
+      (\_ return (concat line rest))
 ) \read_all
 
 # tokenizer
@@ -736,7 +747,13 @@ def (
       Map: \m return (pair (
         Map: \m return (pair (
           Map: \m return (pair (
-            Map: \m abort ({ 'T' 'O' 'D' 'O' })
+            Map: \m
+            getb >>= \mb
+            if (is_nothing mb)
+              (\_ return (from_just (Map::lookup m ({ '3' })))) \_
+            if (0 == (from_just mb))
+              (\_ return (from_just (Map::lookup m ({ '1' }))))
+              (\_ return (from_just (Map::lookup m ({ '2' }))))
           ) (pair ({ '_' }) m))
         ) (pair ({ '3' }) m))
       ) (pair ({ '2' }) m))
