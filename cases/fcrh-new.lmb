@@ -124,8 +124,7 @@ def (
         (\_ $c2b ($: ($mod v $2) bs) ($dec n) ($div v $2))
         (\_ bs)) $[] $8
   ) \$c2b
-  def ($foldl (\_ \x $if x __builtin_p1 __builtin_p0) .) \$putb
-  . $putb $c2b
+  . ($foldl (\_ \b $if b __builtin_p1 __builtin_p0) .) $c2b
 ) \$putc
 def ($foldl (\_ $putc) .) \$puts
 # }}}
@@ -310,8 +309,8 @@ def (Int: \a new Int (dec (value_of a))) \dec
 def (Int: \a Int: \b new Int (add (value_of a) (value_of b))) \add
 def (Int: \a Int: \b new Int (sub (value_of a) (value_of b))) \sub
 def (Int: \a Int: \b new Int (mul (value_of a) (value_of b))) \mul
-def (Int: \a Int: \b new Int ($first (div (value_of a) (value_of b)))) \div
 def (Int: \a Int: \b new Int ($second (div (value_of a) (value_of b)))) \mod
+def (Int: \a Int: \b new Int ($first (div (value_of a) (value_of b)))) \div
 def (Int: \a Int: \b new Int (pow (value_of a) (value_of b))) \pow
 
 def (Int: \a Int: \b new Bool (lt (value_of a) (value_of b))) \lt
@@ -416,6 +415,7 @@ def (List: \xs $foldr (Char: \c \ys $: ($from_char c) ys) $[] ($from_list xs)) \
 # Type!!!! {{{
 # with these builtin types, we may enhance our type system!!!
 
+
 # we must hide the native tid string with an special type "Type"
 def ($from_str({ 'T' 'y' 'p' 'e' })) \Type
 def ($arg_type_check Type) \Type:
@@ -435,12 +435,28 @@ def (Type: \t new (value_of t)) \new
 
 # utils
 def (Type: \t Any: \v $if ($instance_of (value_of t) v) (\_ True) (\_ False)) \instance_of
+def (List: \str $abort ($from_str str)) \abort
+# }}}
+
+# Maybe {{{
+type ({ 'M' 'a' 'y' 'b' 'e' }) \Maybe \Maybe:
+def (Any: \v new Maybe (pair True v)) \Just
+def (new Maybe (pair False False)) \Nothing
+def (Maybe: \m first (value_of m)) \is_just
+def (Maybe: \m not (is_just m)) \is_nothing
+def (
+  Maybe: \m
+  if (is_just m)
+    (\_ second (value_of m))
+    (\_ abort ({ 'C' 'a' 'n' 'n' 'o' 't' spc 'u' 's' 'e' spc 'N' 'o' 't' 'h' 'i' 'n' 'g' spc 'a' 's' spc 'J' 'u' 's' 't' }))
+) \from_just
 # }}}
 
 # IO {{{
 # IO = w -> (w, a)
 type ({ 'W' 'o' 'r' 'l' 'd' }) \World \World:
 type ({ 'I' 'O' }) \IO \IO:
+type ({ 'D' 'u' 'm' 'm' 'y' }) \Dummy \Dummy:
 def (IO: \io World: \w (value_of io) w) \_run_io_with
 def (IO: \io second (_run_io_with io (new World 0))) \_run_io
 
@@ -448,19 +464,65 @@ def (IO: \io second (_run_io_with io (new World 0))) \_run_io
 def (Any: \v new IO (World: \w pair w v)) \return
 # IO a -> (a -> IO b) -> IO b
 def (infix (
-  IO: \io Func: \lmb
+  # XXX: untyped lmb
+  IO: \io \lmb
     new IO (
       World: \w
         def (_run_io_with io w) \p
         _run_io_with (lmb (second p)) (first p))
 )) \>>=
 
+# (a -> IO b) -> [a] -> IO [b]
+def (
+  Func: \f
+    foldr (
+      # a -> IO [b] -> IO [b]
+      Any: \a IO: \acc
+      (f a) >>= \b
+      acc >>= \bs
+      return (: b bs)
+    ) (return [])
+) \mapM
+
 # builtin io
+def (
+  Int: \b
+  new IO (World: \w pair w (
+    if (b == 0)
+      (\_ new Dummy (__builtin_p0 b))
+      (\_ new Dummy (__builtin_p1 b))))
+) \putb
+def (
+  Char: \c
+  (Y \putc Int: \n Int: \v
+    if (0 == n)
+      (\_ return [])
+      (\_
+        putc (n - 1) (v / 2) >>= \acc
+        putb (v % 2) >>= \v
+        return (: v acc))) 8 (ord c)
+) \putc
+def (mapM putc) \puts
+def (new IO (World: \w pair w (__builtin_g (Just 0) (Just 1) Nothing .))) \getb
+def (
+  (Y \getc Int: \n Int: \v
+    if (0 == n)
+      (\_ return (Just (chr v)))
+      (\_ getb >>= \m
+        if (is_nothing m)
+          (\_ return Nothing)
+          (\_ getc (n - 1) ((v * 2) + (from_just m))))) 8 0
+) \getc
 # }}}
 
-if (instance_of Int True)
-  (\_ $puts $"True")
-  (\_ $puts $"False")
+_run_io (
+  (Y \loop
+    getc >>= \ma
+    if (is_just ma)
+      (\_ putc (from_just ma) >>= \_ loop)
+      (\_ return 0)) >>= \_
+  puts ({ 'E' 'n' 'd' endl })
+)
 
 # epilogue {{{
 ) \v \f f v)

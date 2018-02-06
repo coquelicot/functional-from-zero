@@ -284,7 +284,7 @@
   define (\w pair (__builtin_p1 w) (next_w w)) \putb_1
 # IO bool
   define (
-    define (__builtin_g 0 1) \_getb
+    define (__builtin_g 0 1 1) \_getb
     \w pair (_getb w) (next_w w)
   ) \getb
 # IO ()

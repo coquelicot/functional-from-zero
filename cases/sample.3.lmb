@@ -7,7 +7,7 @@ define (\f \_ f (f _)) \x2
 define (\f x2 x2 (x2 f)) \x8
 
 # g p0 p1 _ = p0 iff next bit = 0
-define (\_ __builtin_g __builtin_p0 __builtin_p1 _ _) \echo_b
+define (\_ __builtin_g __builtin_p0 __builtin_p1 __builtin_p0 _ _) \echo_b
 define (x8 echo_b) \echo_c
 
 x8 echo_c define

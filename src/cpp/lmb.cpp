@@ -311,8 +311,10 @@ int input() {
     static int val = 0;
 
     if (pos < 0) {
-        pos = 7;
         val = cin.get();
+        if (val == EOF)
+            return EOF;
+        pos = 7;
     }
 
     lmb_t::pure = false;
@@ -336,7 +338,8 @@ struct builtin_p1_expr_t : public expr_t {
 
 struct builtin_g_expr_t : public expr_t {
     virtual shared_ptr<const lmb_t> eval(const shadow_env_t &env) const {
-        return env[input()+1];
+        int bit = input();
+        return bit == EOF ? env[3] : env[bit+1];
     }
 };
 
@@ -353,7 +356,7 @@ int main(int argc, char *args[]) {
     map<string, shared_ptr<const lmb_t>> env;
     env["__builtin_p0"] = make_shared<lmb_t>(new builtin_p0_expr_t(), env_t{});
     env["__builtin_p1"] = make_shared<lmb_t>(new builtin_p1_expr_t(), env_t{});
-    env["__builtin_g"] = make_shared<lmb_t>(new lmb_expr_t(new lmb_expr_t(new builtin_g_expr_t(), {1, 0}), {0}), env_t{});
+    env["__builtin_g"] = make_shared<lmb_t>(new lmb_expr_t(new lmb_expr_t(new lmb_expr_t(new builtin_g_expr_t(), {1, 2, 0}), {1, 0}), {0}), env_t{});
 
     while (parser.run_once(toks, env));
 }
