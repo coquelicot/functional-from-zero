@@ -1,35 +1,70 @@
 use std::{error, fmt};
-use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::hash::{Hash, Hasher};
 use std::borrow::Borrow;
+
+use chashmap::CHashMap;
 
 use super::tokenizer::Token;
 use super::transformer;
 use super::transformer::Expression;
 use super::bitio;
 
-type RcLambda<'a> = Rc<Lambda<'a> + 'a>;
-type LambdaReturn<'a> = Result<(RcLambda<'a>, bool), Error<'a>>;
+type ArcLambda<'a> = Arc<Lambda<'a> + 'a>;
+type LambdaReturn<'a> = Result<(ArcLambda<'a>, bool), Error<'a>>;
 
 trait Lambda<'a>: fmt::Debug {
-    fn apply(&self, arg: RcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a>;
+    fn apply(&self, arg: ArcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a>;
 }
 
 // #[derive(Debug)]
 // struct DummyLambda {}
 
 // impl<'a> Lambda<'a> for DummyLambda {
-//     fn apply(&self, _: RcLambda<'a>) -> LambdaReturn<'a> {
+//     fn apply(&self, _: ArcLambda<'a>) -> LambdaReturn<'a> {
 //         Err(Error::DummyLambdaCalled)
 //     }
 // }
 
 #[derive(Debug)]
 struct Closure<'a> {
-    environment: Rc<BaseEnvironment<'a>>,
+    environment: Arc<BaseEnvironment<'a>>,
     body: &'a Expression,
+}
+
+impl<'a> Lambda<'a> for Closure<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a> {
+        let environment = OverlayEnvironment {
+            base: Arc::clone(&self.environment),
+            arg_value: arg,
+        };
+        run_impl(self.body, &environment, cache)
+    }
+}
+
+trait Environment<'a>: fmt::Debug {
+    fn get(&self, name: usize) -> ArcLambda<'a>;
+}
+
+#[derive(Debug)]
+struct BaseEnvironment<'a> {
+    values: Vec<Arc<Lambda<'a> + 'a>>,
+}
+
+impl<'a> BaseEnvironment<'a> {
+    fn new() -> BaseEnvironment<'a> {
+        BaseEnvironment { values: vec![] }
+    }
+    fn push(&mut self, lambda: ArcLambda<'a>) {
+        self.values.push(lambda);
+    }
+}
+
+impl<'a> Environment<'a> for BaseEnvironment<'a> {
+    fn get(&self, name: usize) -> Arc<Lambda<'a> + 'a> {
+        Arc::clone(&self.values[name])
+    }
 }
 
 impl<'a> Hash for BaseEnvironment<'a> {
@@ -38,9 +73,9 @@ impl<'a> Hash for BaseEnvironment<'a> {
         H: Hasher,
     {
         for ref val in self.values.iter() {
-            let ptr = Rc::into_raw(Rc::clone(&val));
+            let ptr = Arc::into_raw(Arc::clone(&val));
             ptr.hash(state);
-            let _ = unsafe { Rc::from_raw(ptr) };
+            let _ = unsafe { Arc::from_raw(ptr) };
         }
     }
 }
@@ -51,7 +86,7 @@ impl<'a> PartialEq for BaseEnvironment<'a> {
             return false;
         }
         for (i, val) in self.values.iter().enumerate() {
-            if !Rc::ptr_eq(&val, &other.values[i]) {
+            if !Arc::ptr_eq(&val, &other.values[i]) {
                 return false;
             }
         }
@@ -61,50 +96,16 @@ impl<'a> PartialEq for BaseEnvironment<'a> {
 
 impl<'a> Eq for BaseEnvironment<'a> {}
 
-impl<'a> Lambda<'a> for Closure<'a> {
-    fn apply(&self, arg: RcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a> {
-        let environment = OverlayEnvironment {
-            base: Rc::clone(&self.environment),
-            arg_value: arg,
-        };
-        run_impl(self.body, &environment, cache)
-    }
-}
-
-trait Environment<'a>: fmt::Debug {
-    fn get(&self, name: usize) -> RcLambda<'a>;
-}
-
-#[derive(Debug)]
-struct BaseEnvironment<'a> {
-    values: Vec<Rc<Lambda<'a> + 'a>>,
-}
-
-impl<'a> BaseEnvironment<'a> {
-    fn new() -> BaseEnvironment<'a> {
-        BaseEnvironment { values: vec![] }
-    }
-    fn push(&mut self, lambda: RcLambda<'a>) {
-        self.values.push(lambda);
-    }
-}
-
-impl<'a> Environment<'a> for BaseEnvironment<'a> {
-    fn get(&self, name: usize) -> Rc<Lambda<'a> + 'a> {
-        Rc::clone(&self.values[name])
-    }
-}
-
 #[derive(Debug)]
 struct OverlayEnvironment<'a> {
-    base: Rc<BaseEnvironment<'a>>,
-    arg_value: Rc<Lambda<'a> + 'a>,
+    base: Arc<BaseEnvironment<'a>>,
+    arg_value: Arc<Lambda<'a> + 'a>,
 }
 
 impl<'a> Environment<'a> for OverlayEnvironment<'a> {
-    fn get(&self, name: usize) -> RcLambda<'a> {
+    fn get(&self, name: usize) -> ArcLambda<'a> {
         if name == 0 {
-            Rc::clone(&self.arg_value)
+            Arc::clone(&self.arg_value)
         } else {
             self.base.get(name - 1)
         }
@@ -128,7 +129,7 @@ impl DebugLambda {
 }
 
 impl<'a> Lambda<'a> for DebugLambda {
-    fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         println!("[debug] arg = {:p}", arg.as_ref());
         Ok((arg, true))
     }
@@ -146,7 +147,7 @@ impl BitOutputLambda {
 }
 
 impl<'a> Lambda<'a> for BitOutputLambda {
-    fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         BIT_STDOUT.lock().unwrap().write(self.bit);
         Ok((arg, false))
     }
@@ -162,21 +163,21 @@ impl BitInputLambda {
 }
 
 impl<'a> Lambda<'a> for BitInputLambda {
-    fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
-        Ok((Rc::from(BitInputLambda1 { arg }), true))
+    fn apply(&self, arg: ArcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+        Ok((Arc::from(BitInputLambda1 { arg }), true))
     }
 }
 
 #[derive(Debug)]
 struct BitInputLambda1<'a> {
-    arg: RcLambda<'a>,
+    arg: ArcLambda<'a>,
 }
 
 impl<'a> Lambda<'a> for BitInputLambda1<'a> {
-    fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         Ok((
-            Rc::from(BitInputLambda2 {
-                args: [Rc::clone(&self.arg), Rc::clone(&arg)],
+            Arc::from(BitInputLambda2 {
+                args: [Arc::clone(&self.arg), Arc::clone(&arg)],
             }),
             true,
         ))
@@ -185,17 +186,17 @@ impl<'a> Lambda<'a> for BitInputLambda1<'a> {
 
 #[derive(Debug)]
 struct BitInputLambda2<'a> {
-    args: [RcLambda<'a>; 2],
+    args: [ArcLambda<'a>; 2],
 }
 
 impl<'a> Lambda<'a> for BitInputLambda2<'a> {
-    fn apply(&self, arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         Ok((
-            Rc::from(BitInputLambda3 {
+            Arc::from(BitInputLambda3 {
                 args: [
-                    Rc::clone(&self.args[0]),
-                    Rc::clone(&self.args[1]),
-                    Rc::clone(&arg),
+                    Arc::clone(&self.args[0]),
+                    Arc::clone(&self.args[1]),
+                    Arc::clone(&arg),
                 ],
             }),
             true,
@@ -205,18 +206,18 @@ impl<'a> Lambda<'a> for BitInputLambda2<'a> {
 
 #[derive(Debug)]
 struct BitInputLambda3<'a> {
-    args: [RcLambda<'a>; 3],
+    args: [ArcLambda<'a>; 3],
 }
 
 impl<'a> Lambda<'a> for BitInputLambda3<'a> {
-    fn apply(&self, _arg: RcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, _arg: ArcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
         let bit = BIT_STDIN.lock().unwrap().read();
         let arg_idx = match bit {
             Some(b @ 0...1) => b as usize,
             None => 2,
             _ => unreachable!(),
         };
-        Ok((Rc::clone(&self.args[arg_idx]), false))
+        Ok((Arc::clone(&self.args[arg_idx]), false))
     }
 }
 
@@ -250,15 +251,15 @@ impl<'a> fmt::Display for Error<'a> {
 }
 
 struct RunCache<'a> {
-    closure_cache: HashMap<(Rc<BaseEnvironment<'a>>, *const Expression), Rc<Closure<'a>>>,
-    apply_cache: HashMap<(*const (Lambda<'a> + 'a), *const (Lambda<'a> + 'a)), RcLambda<'a>>,
+    closure_cache: CHashMap<(Arc<BaseEnvironment<'a>>, *const Expression), Arc<Closure<'a>>>,
+    apply_cache: CHashMap<(*const (Lambda<'a> + 'a), *const (Lambda<'a> + 'a)), ArcLambda<'a>>,
 }
 
 impl<'a> RunCache<'a> {
     fn new() -> RunCache<'a> {
         RunCache {
-            closure_cache: HashMap::new(),
-            apply_cache: HashMap::new(),
+            closure_cache: CHashMap::new(),
+            apply_cache: CHashMap::new(),
         }
     }
 }
@@ -278,8 +279,8 @@ fn run_impl<'a>(
         }) => {
             let (lambda, lambda_pure) = run_impl(lambda, environment, cache)?;
             let (parameter, parameter_pure) = run_impl(parameter, environment, cache)?;
-            let lambda_ptr = Rc::into_raw(lambda.clone());
-            let parameter_ptr = Rc::into_raw(parameter.clone());
+            let lambda_ptr = Arc::into_raw(lambda.clone());
+            let parameter_ptr = Arc::into_raw(parameter.clone());
             if let Some(result) = cache.apply_cache.get(&(lambda_ptr, parameter_ptr)) {
                 return Ok((result.clone(), lambda_pure && parameter_pure));
             }
@@ -289,8 +290,8 @@ fn run_impl<'a>(
                     .apply_cache
                     .insert((lambda_ptr, parameter_ptr), result.clone());
             }
-            let _ = unsafe { Rc::from_raw(parameter_ptr) };
-            let _ = unsafe { Rc::from_raw(lambda_ptr) };
+            let _ = unsafe { Arc::from_raw(parameter_ptr) };
+            let _ = unsafe { Arc::from_raw(lambda_ptr) };
             Ok((result, lambda_pure && parameter_pure && apply_pure))
         }
         Expression::Lambda(transformer::LambdaExpression {
@@ -301,17 +302,17 @@ fn run_impl<'a>(
             for &parent_idx in env_map.iter() {
                 new_environment.push(environment.get(parent_idx as usize))
             }
-            let new_environment = Rc::from(new_environment);
-            let closure = cache
-                .closure_cache
-                .entry((new_environment.clone(), body.borrow() as *const Expression))
-                .or_insert_with(|| {
-                    Rc::from(Closure {
-                        environment: new_environment,
-                        body: body,
-                    })
-                });
-            Ok((closure.clone(), true))
+            let new_environment = Arc::from(new_environment);
+            let key = (new_environment.clone(), body.borrow() as *const Expression);
+            if let Some(result) = cache.closure_cache.get(&key) {
+                return Ok((result.clone(), true));
+            }
+            let result = Arc::from(Closure {
+                environment: new_environment,
+                body: body,
+            });
+            cache.closure_cache.insert(key, result.clone());
+            Ok((result, true))
         }
     }
 }
@@ -324,10 +325,10 @@ pub fn run<'a>(
     let mut environment = BaseEnvironment::new();
     for name in free_vars.iter() {
         match name.token_raw {
-            "__builtin_p0" => environment.push(Rc::from(BitOutputLambda::new(0))),
-            "__builtin_p1" => environment.push(Rc::from(BitOutputLambda::new(1))),
-            "__builtin_g" => environment.push(Rc::from(BitInputLambda::new())),
-            "__builtin_debug" => environment.push(Rc::from(DebugLambda::new())),
+            "__builtin_p0" => environment.push(Arc::from(BitOutputLambda::new(0))),
+            "__builtin_p1" => environment.push(Arc::from(BitOutputLambda::new(1))),
+            "__builtin_g" => environment.push(Arc::from(BitInputLambda::new())),
+            "__builtin_debug" => environment.push(Arc::from(DebugLambda::new())),
             _ => undefined_vars.push(name),
         }
     }
