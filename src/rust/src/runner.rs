@@ -65,7 +65,7 @@ type ArcLambda<'a> = Arc<Lambda<'a>>;
 type LambdaReturn<'a> = Result<(ArcLambda<'a>, bool), Error<'a>>;
 
 trait LambdaValue<'a>: fmt::Debug + Send + Sync {
-    fn apply(&self, arg: ArcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a>;
+    fn apply(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a>;
 }
 
 #[derive(Debug)]
@@ -75,13 +75,13 @@ struct Lambda<'a> {
 }
 
 impl<'a> Lambda<'a> {
-    fn new(value: Box<LambdaValue<'a> + 'a>, cache: &mut RunCache) -> Lambda<'a> {
+    fn new(value: Box<LambdaValue<'a> + 'a>, cache: &RunCache) -> Lambda<'a> {
         Lambda {
             value,
             id: cache.new_id(),
         }
     }
-    fn apply(&self, arg: ArcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a> {
         self.value.apply(arg, cache)
     }
 }
@@ -102,7 +102,7 @@ struct Closure<'a> {
 }
 
 impl<'a> LambdaValue<'a> for Closure<'a> {
-    fn apply(&self, arg: ArcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a> {
         let environment = OverlayEnvironment {
             base: Arc::clone(&self.environment),
             arg_value: arg,
@@ -197,7 +197,7 @@ impl DebugLambda {
 }
 
 impl<'a> LambdaValue<'a> for DebugLambda {
-    fn apply(&self, arg: ArcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, _: &RunCache) -> LambdaReturn<'a> {
         println!("[debug] arg = {:p}", arg.as_ref());
         Ok((arg, true))
     }
@@ -215,7 +215,7 @@ impl BitOutputLambda {
 }
 
 impl<'a> LambdaValue<'a> for BitOutputLambda {
-    fn apply(&self, arg: ArcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, _: &RunCache) -> LambdaReturn<'a> {
         BIT_STDOUT.lock().unwrap().write(self.bit);
         Ok((arg, false))
     }
@@ -231,7 +231,7 @@ impl BitInputLambda {
 }
 
 impl<'a> LambdaValue<'a> for BitInputLambda {
-    fn apply(&self, arg: ArcLambda<'a>, cache: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, cache: &RunCache) -> LambdaReturn<'a> {
         Ok((
             Arc::from(Lambda::new(Box::from(BitInputLambda1 { arg }), cache)),
             true,
@@ -245,7 +245,7 @@ struct BitInputLambda1<'a> {
 }
 
 impl<'a> LambdaValue<'a> for BitInputLambda1<'a> {
-    fn apply(&self, arg: ArcLambda<'a>, cache: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, cache: &RunCache) -> LambdaReturn<'a> {
         Ok((
             Arc::from(Lambda::new(
                 Box::from(BitInputLambda2 {
@@ -264,7 +264,7 @@ struct BitInputLambda2<'a> {
 }
 
 impl<'a> LambdaValue<'a> for BitInputLambda2<'a> {
-    fn apply(&self, arg: ArcLambda<'a>, cache: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: ArcLambda<'a>, cache: &RunCache) -> LambdaReturn<'a> {
         Ok((
             Arc::from(Lambda::new(
                 Box::from(BitInputLambda3 {
@@ -287,7 +287,7 @@ struct BitInputLambda3<'a> {
 }
 
 impl<'a> LambdaValue<'a> for BitInputLambda3<'a> {
-    fn apply(&self, _arg: ArcLambda<'a>, _: &mut RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, _arg: ArcLambda<'a>, _: &RunCache) -> LambdaReturn<'a> {
         let bit = BIT_STDIN.lock().unwrap().read();
         let arg_idx = match bit {
             Some(b @ 0...1) => b as usize,
@@ -328,7 +328,7 @@ impl<'a> fmt::Display for Error<'a> {
 }
 
 struct RunCache<'a> {
-    closure_cache: CHashMap<(Arc<BaseEnvironment<'a>>, usize), Arc<Lambda<'a>>>,
+    closure_cache: CHashMap<(Arc<BaseEnvironment<'a>>, usize), ArcLambda<'a>>,
     apply_cache: CHashMap<(usize, usize), ArcLambda<'a>>,
     id_counter: AtomicUsize,
 }
@@ -342,7 +342,7 @@ impl<'a> RunCache<'a> {
         }
     }
 
-    fn new_id(&mut self) -> usize {
+    fn new_id(&self) -> usize {
         self.id_counter.fetch_add(1, Ordering::Relaxed)
     }
 }
@@ -350,7 +350,7 @@ impl<'a> RunCache<'a> {
 fn run_impl<'a, J: Joiner>(
     expression: &'a Expression,
     environment: &Environment<'a>,
-    cache: &mut RunCache<'a>,
+    cache: &RunCache<'a>,
 ) -> LambdaReturn<'a> {
     match expression.value {
         ExpressionValue::Identifier(transformer::IdentifierExpression { name }) => {
@@ -360,12 +360,11 @@ fn run_impl<'a, J: Joiner>(
             ref lambda,
             ref parameter,
         }) => {
-            let (lambda, lambda_pure) = run_impl::<Sequential>(lambda, environment, cache)?;
-            let (parameter, parameter_pure) =
-                run_impl::<Sequential>(parameter, environment, cache)?;
+            let (lambda, lambda_pure) = run_impl::<J>(lambda, environment, cache)?;
+            let (parameter, parameter_pure) = run_impl::<J>(parameter, environment, cache)?;
             // let (lambda_res, parameter_res) = J::join(
-            //     || run_impl(lambda, environment, cache),
-            //     || run_impl(parameter, environment, cache),
+            //     || run_impl::<J>(lambda, environment, cache),
+            //     || run_impl::<J>(parameter, environment, cache),
             // );
             // let (lambda, lambda_pure) = lambda_res?;
             // let (parameter, parameter_pure) = parameter_res?;

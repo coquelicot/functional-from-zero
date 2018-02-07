@@ -5,6 +5,7 @@ authors = ["Peter Shih <peter50216@gmail.com>"]
 
 [dependencies]
 regex = "0.2"
-lazy_static = "1.0"
 rayon = "0.9"
+lazy_static = "1.0"
 chashmap = "2.2"
+rayon-futures = "0.1"
