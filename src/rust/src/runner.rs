@@ -5,16 +5,66 @@ use std::hash::{Hash, Hasher};
 use std::borrow::Borrow;
 
 use chashmap::CHashMap;
+use rayon;
 
 use super::tokenizer::Token;
 use super::transformer;
-use super::transformer::Expression;
+use super::transformer::{Expression, ExpressionValue};
 use super::bitio;
+
+// From https://github.com/rayon-rs/rayon/blob/d9b637e51b9dcc9045a28b40647661092a7f17b5/rayon-demo/src/quicksort/mod.rs#L30
+pub trait Joiner {
+    fn is_parallel() -> bool;
+    fn join<A, RA, B, RB>(oper_a: A, oper_b: B) -> (RA, RB)
+    where
+        A: FnOnce() -> RA + Send,
+        B: FnOnce() -> RB + Send,
+        RA: Send,
+        RB: Send;
+}
+
+struct Parallel;
+impl Joiner for Parallel {
+    #[inline]
+    fn is_parallel() -> bool {
+        true
+    }
+    #[inline]
+    fn join<A, RA, B, RB>(oper_a: A, oper_b: B) -> (RA, RB)
+    where
+        A: FnOnce() -> RA + Send,
+        B: FnOnce() -> RB + Send,
+        RA: Send,
+        RB: Send,
+    {
+        rayon::join(oper_a, oper_b)
+    }
+}
+
+struct Sequential;
+impl Joiner for Sequential {
+    #[inline]
+    fn is_parallel() -> bool {
+        false
+    }
+    #[inline]
+    fn join<A, RA, B, RB>(oper_a: A, oper_b: B) -> (RA, RB)
+    where
+        A: FnOnce() -> RA + Send,
+        B: FnOnce() -> RB + Send,
+        RA: Send,
+        RB: Send,
+    {
+        let a = oper_a();
+        let b = oper_b();
+        (a, b)
+    }
+}
 
 type ArcLambda<'a> = Arc<Lambda<'a> + 'a>;
 type LambdaReturn<'a> = Result<(ArcLambda<'a>, bool), Error<'a>>;
 
-trait Lambda<'a>: fmt::Debug {
+trait Lambda<'a>: fmt::Debug + Send + Sync {
     fn apply(&self, arg: ArcLambda<'a>, cache: &mut RunCache<'a>) -> LambdaReturn<'a>;
 }
 
@@ -39,17 +89,17 @@ impl<'a> Lambda<'a> for Closure<'a> {
             base: Arc::clone(&self.environment),
             arg_value: arg,
         };
-        run_impl(self.body, &environment, cache)
+        run_impl::<Sequential>(self.body, &environment, cache)
     }
 }
 
-trait Environment<'a>: fmt::Debug {
+trait Environment<'a>: fmt::Debug + Send + Sync {
     fn get(&self, name: usize) -> ArcLambda<'a>;
 }
 
 #[derive(Debug)]
 struct BaseEnvironment<'a> {
-    values: Vec<Arc<Lambda<'a> + 'a>>,
+    values: Vec<ArcLambda<'a>>,
 }
 
 impl<'a> BaseEnvironment<'a> {
@@ -62,7 +112,7 @@ impl<'a> BaseEnvironment<'a> {
 }
 
 impl<'a> Environment<'a> for BaseEnvironment<'a> {
-    fn get(&self, name: usize) -> Arc<Lambda<'a> + 'a> {
+    fn get(&self, name: usize) -> ArcLambda<'a> {
         Arc::clone(&self.values[name])
     }
 }
@@ -99,7 +149,7 @@ impl<'a> Eq for BaseEnvironment<'a> {}
 #[derive(Debug)]
 struct OverlayEnvironment<'a> {
     base: Arc<BaseEnvironment<'a>>,
-    arg_value: Arc<Lambda<'a> + 'a>,
+    arg_value: ArcLambda<'a>,
 }
 
 impl<'a> Environment<'a> for OverlayEnvironment<'a> {
@@ -264,21 +314,28 @@ impl<'a> RunCache<'a> {
     }
 }
 
-fn run_impl<'a>(
+fn run_impl<'a, J: Joiner>(
     expression: &'a Expression,
     environment: &Environment<'a>,
     cache: &mut RunCache<'a>,
 ) -> LambdaReturn<'a> {
-    match *expression {
-        Expression::Identifier(transformer::IdentifierExpression { name }) => {
+    match expression.value {
+        ExpressionValue::Identifier(transformer::IdentifierExpression { name }) => {
             Ok((environment.get(name), true))
         }
-        Expression::Apply(transformer::ApplyExpression {
+        ExpressionValue::Apply(transformer::ApplyExpression {
             ref lambda,
             ref parameter,
         }) => {
-            let (lambda, lambda_pure) = run_impl(lambda, environment, cache)?;
-            let (parameter, parameter_pure) = run_impl(parameter, environment, cache)?;
+            let (lambda, lambda_pure) = run_impl::<Sequential>(lambda, environment, cache)?;
+            let (parameter, parameter_pure) =
+                run_impl::<Sequential>(parameter, environment, cache)?;
+            // let (lambda_res, parameter_res) = J::join(
+            //     || run_impl(lambda, environment, cache),
+            //     || run_impl(parameter, environment, cache),
+            // );
+            // let (lambda, lambda_pure) = lambda_res?;
+            // let (parameter, parameter_pure) = parameter_res?;
             let lambda_ptr = Arc::into_raw(lambda.clone());
             let parameter_ptr = Arc::into_raw(parameter.clone());
             if let Some(result) = cache.apply_cache.get(&(lambda_ptr, parameter_ptr)) {
@@ -294,7 +351,7 @@ fn run_impl<'a>(
             let _ = unsafe { Arc::from_raw(lambda_ptr) };
             Ok((result, lambda_pure && parameter_pure && apply_pure))
         }
-        Expression::Lambda(transformer::LambdaExpression {
+        ExpressionValue::Lambda(transformer::LambdaExpression {
             ref env_map,
             ref body,
         }) => {
@@ -336,6 +393,6 @@ pub fn run<'a>(
         return Err(Error::UndefinedVariable(undefined_vars));
     }
     let mut cache = RunCache::new();
-    run_impl(expression, &environment, &mut cache)?;
+    run_impl::<Sequential>(expression, &environment, &mut cache)?;
     Ok(())
 }

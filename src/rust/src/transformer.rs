@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use super::tokenizer::Token;
 use super::parser::Node;
@@ -12,56 +13,86 @@ pub struct IdentifierExpression {
 #[derive(Debug)]
 pub struct LambdaExpression {
     pub env_map: Vec<usize>,
-    pub body: Rc<Expression>,
+    pub body: Arc<Expression>,
 }
 
 #[derive(Debug)]
 pub struct ApplyExpression {
-    pub lambda: Rc<Expression>,
-    pub parameter: Rc<Expression>,
+    pub lambda: Arc<Expression>,
+    pub parameter: Arc<Expression>,
 }
 
 #[derive(Debug)]
-pub enum Expression {
+pub enum ExpressionValue {
     Identifier(IdentifierExpression),
     Lambda(LambdaExpression),
     Apply(ApplyExpression),
 }
 
 #[derive(Debug)]
+pub struct Expression {
+    pub value: ExpressionValue,
+    pub id: usize,
+}
+
+#[derive(Debug)]
 pub struct ExpressionCache {
-    identifier_cache: HashMap<usize, Rc<Expression>>,
-    lambda_cache: HashMap<(Vec<usize>, *const Expression), Rc<Expression>>,
-    apply_cache: HashMap<(*const Expression, *const Expression), Rc<Expression>>,
+    id_counter: AtomicUsize,
+    identifier_cache: HashMap<usize, Arc<Expression>>,
+    lambda_cache: HashMap<(Vec<usize>, usize), Arc<Expression>>,
+    apply_cache: HashMap<(usize, usize), Arc<Expression>>,
 }
 
 impl ExpressionCache {
     fn new() -> ExpressionCache {
         ExpressionCache {
+            id_counter: AtomicUsize::new(0),
             identifier_cache: HashMap::new(),
             lambda_cache: HashMap::new(),
             apply_cache: HashMap::new(),
         }
     }
-    fn new_identifier(&mut self, name: usize) -> Rc<Expression> {
+    fn new_id(&mut self) -> usize {
+        self.id_counter.fetch_add(1, Ordering::Relaxed)
+    }
+    fn new_identifier(&mut self, name: usize) -> Arc<Expression> {
+        let id = self.new_id();
         self.identifier_cache
             .entry(name)
-            .or_insert_with(|| Rc::from(Expression::Identifier(IdentifierExpression { name })))
+            .or_insert_with(|| {
+                Arc::from(Expression {
+                    id,
+                    value: ExpressionValue::Identifier(IdentifierExpression { name }),
+                })
+            })
             .clone()
     }
-    fn new_lambda(&mut self, env_map: Vec<usize>, body: Rc<Expression>) -> Rc<Expression> {
+    fn new_lambda(&mut self, env_map: Vec<usize>, body: Arc<Expression>) -> Arc<Expression> {
+        let id = self.new_id();
         self.lambda_cache
-            .entry((env_map.clone(), body.as_ref() as *const Expression))
-            .or_insert_with(|| Rc::from(Expression::Lambda(LambdaExpression { env_map, body })))
+            .entry((env_map.clone(), body.id))
+            .or_insert_with(|| {
+                Arc::from(Expression {
+                    id,
+                    value: ExpressionValue::Lambda(LambdaExpression { env_map, body }),
+                })
+            })
             .clone()
     }
-    fn new_apply(&mut self, lambda: Rc<Expression>, parameter: Rc<Expression>) -> Rc<Expression> {
+    fn new_apply(
+        &mut self,
+        lambda: Arc<Expression>,
+        parameter: Arc<Expression>,
+    ) -> Arc<Expression> {
+        let id = self.new_id();
         self.apply_cache
-            .entry((
-                lambda.as_ref() as *const Expression,
-                parameter.as_ref() as *const Expression,
-            ))
-            .or_insert_with(|| Rc::from(Expression::Apply(ApplyExpression { lambda, parameter })))
+            .entry((lambda.id, parameter.id))
+            .or_insert_with(|| {
+                Arc::from(Expression {
+                    id,
+                    value: ExpressionValue::Apply(ApplyExpression { lambda, parameter }),
+                })
+            })
             .clone()
     }
 }
@@ -90,7 +121,7 @@ fn transform_impl<'a>(
     root: &Node<'a>,
     free_vars: &mut VariableNameMap<'a>,
     expression_cache: &mut ExpressionCache,
-) -> Rc<Expression> {
+) -> Arc<Expression> {
     match *root {
         Node::Identifier(token) => {
             let name = free_vars.get_or_insert(token);
@@ -118,11 +149,14 @@ fn transform_impl<'a>(
     }
 }
 
-pub fn transform<'a>(root: &'a Node) -> (Rc<Expression>, Vec<&'a Token<'a>>) {
+pub fn transform<'a>(root: &'a Node) -> (Arc<Expression>, Vec<&'a Token<'a>>) {
     let mut free_vars = VariableNameMap::new();
     let mut expression_cache = ExpressionCache::new();
     let expression = transform_impl(&root, &mut free_vars, &mut expression_cache);
     let mut free_vars: Vec<(usize, &Token)> = free_vars.map.into_iter().map(|(_, v)| v).collect();
     free_vars.sort_by_key(|&(name, _)| name);
-    (expression, free_vars.iter().map(|&(_, token)| token).collect())
+    (
+        expression,
+        free_vars.iter().map(|&(_, token)| token).collect(),
+    )
 }
