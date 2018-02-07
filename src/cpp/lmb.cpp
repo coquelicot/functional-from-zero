@@ -17,6 +17,11 @@ using namespace std;
 struct lmb_t;
 using lmb_hdr_t = shared_ptr<lmb_t>;
 
+template <typename... Args>
+lmb_hdr_t make_lmb(Args&&... args) {
+    return make_shared<lmb_t>(std::forward<Args>(args)...);
+}
+
 using env_t = vector<lmb_hdr_t>;
 struct shadow_env_t {
 
@@ -31,8 +36,18 @@ struct shadow_env_t {
     }
 };
 
+struct env_hash_t {
+    size_t operator()(const env_t &env) const {
+        auto hasher = hash<lmb_hdr_t>();
+        size_t retv = 0;
+        for (auto &v : env)
+            retv = retv * 17 + hasher(v);
+        return retv;
+    }
+};
+
 struct expr_t {
-    map<env_t, lmb_hdr_t> cache;
+    unordered_map<env_t, lmb_hdr_t, env_hash_t> cache;
     virtual lmb_hdr_t eval(const shadow_env_t &env) const = 0;
     virtual ~expr_t() {};
 };
@@ -68,12 +83,6 @@ struct lmb_t {
     }
 };
 bool lmb_t::pure = true;
-
-template <typename... Args>
-lmb_hdr_t make_lmb(Args&&... args) {
-    return make_shared<lmb_t>(std::forward<Args>(args)...);
-}
-
 
 struct lmb_expr_t : public expr_t {
 
