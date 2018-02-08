@@ -16,7 +16,7 @@ using namespace std;
 
 struct lmb_t;
 using lmb_idx_t = unsigned long;
-using lmb_hdr_t = shared_ptr<lmb_t>;
+using lmb_hdr_t = shared_ptr<const lmb_t>;
 
 template <typename... Args>
 lmb_hdr_t make_lmb(Args&&... args) {
@@ -27,18 +27,14 @@ using env_t = vector<lmb_hdr_t>;
 using env_idx_t = vector<lmb_idx_t>;
 
 struct shadow_env_t {
-
     const lmb_hdr_t &shadow_val;
     const env_t &orgi_env;
-
-    shadow_env_t(const lmb_hdr_t &_shadow_val, const env_t &_orgi_env) :
-        shadow_val(_shadow_val), orgi_env(_orgi_env) {}
-
     const lmb_hdr_t& operator[](int idx) const {
         return idx == 0 ? shadow_val : orgi_env[idx-1];
     }
 };
 
+// TODO: better hash
 struct env_hash_t {
     size_t operator()(const env_idx_t &ienv) const {
         auto hasher = hash<lmb_idx_t>();
@@ -51,7 +47,7 @@ struct env_hash_t {
 
 struct expr_t {
     mutable unordered_map<env_idx_t, lmb_hdr_t, env_hash_t> cache;
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const = 0;
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const = 0;
     virtual ~expr_t() {};
 };
 
@@ -61,11 +57,13 @@ struct lmb_t {
 
     const expr_t *body;
     const env_t env;
-    lmb_idx_t idx;
-    unordered_map<lmb_idx_t, lmb_hdr_t> cache;
+    const lmb_idx_t idx;
+    mutable unordered_map<lmb_idx_t, lmb_hdr_t> cache;
 
     lmb_t(const expr_t *_body, const env_t &_env) :
         body(_body), env(_env), idx(gidx++) {}
+    lmb_t(const expr_t *_body, env_t &&_env) :
+        body(_body), env(move(_env)), idx(gidx++) {}
 };
 lmb_idx_t lmb_t::gidx = 0;
 
@@ -77,14 +75,14 @@ struct lmb_expr_t : public expr_t {
     lmb_expr_t(const expr_t *_body, const vector<size_t> &_arg_map) :
         body(_body), arg_map(_arg_map) {}
 
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
 
         env_idx_t ienv;
         ienv.reserve(arg_map.size());
         for (auto idx : arg_map)
             ienv.emplace_back(env[idx]->idx);
 
-        auto &ref = body->cache[ienv];
+        auto &ref = body->cache[move(ienv)];
         if (ref == nullptr) {
 
             env_t nenv;
@@ -92,7 +90,7 @@ struct lmb_expr_t : public expr_t {
             for (auto idx : arg_map)
                 nenv.emplace_back(env[idx]);
 
-            ref = make_shared<lmb_t>(body, nenv);
+            ref = make_shared<lmb_t>(body, move(nenv));
         }
 
         return ref;
@@ -107,12 +105,12 @@ struct apply_expr_t : public expr_t {
     apply_expr_t(const expr_t *_func, const expr_t *_arg) :
         func(_func), arg(_arg) {}
 
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
-        auto lfunc = func->eval(env);
-        auto larg = arg->eval(env);
-        auto &ref = lfunc->cache[larg->idx];
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
+        auto& lfunc = func->eval(env);
+        auto& larg = arg->eval(env);
+        auto& ref = lfunc->cache[larg->idx];
         if (ref == nullptr)
-            ref = lfunc->body->eval(shadow_env_t(larg, lfunc->env));
+            ref = lfunc->body->eval(shadow_env_t{larg, lfunc->env});
         return ref;
     }
 };
@@ -123,7 +121,7 @@ struct ref_expr_t : public expr_t {
 
     ref_expr_t(size_t _ref_idx) : ref_idx(_ref_idx) {}
 
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         return env[ref_idx];
     }
 };
@@ -287,7 +285,7 @@ struct parser_t {
             nenv[pair.second-1] = env[pair.first];
         }
 
-        prog->eval(shadow_env_t(nullptr, nenv));
+        prog->eval(shadow_env_t{nullptr, nenv});
         return true;
     }
 };
@@ -328,21 +326,21 @@ int input() {
 
 
 struct builtin_p0_expr_t : public expr_t {
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         output(0);
         return env[0];
     }
 };
 
 struct builtin_p1_expr_t : public expr_t {
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         output(1);
         return env[0];
     }
 };
 
 struct builtin_g_expr_t : public expr_t {
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         int bit = input();
         return bit == EOF ? env[3] : env[bit+1];
     }
