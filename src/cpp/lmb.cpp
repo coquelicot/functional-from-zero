@@ -104,7 +104,7 @@ struct task_que_t {
         size_t _eid = eid.load(memory_order_acquire);
         if (_sid < _eid) {
             buf_t *_tasks = tasks.load(memory_order_consume);
-            *retv = _tasks->buf[_sid % _tasks->cap];
+            *retv = _tasks->buf[_sid % _tasks->cap].load(memory_order_relaxed);
             return sid.compare_exchange_strong(_sid, _sid+1, memory_order_seq_cst, memory_order_relaxed);
         }
         return false;
@@ -133,7 +133,7 @@ struct task_que_t {
 
     void push(task_t *ntask) {
         size_t _eid = eid.load(memory_order_relaxed);
-        size_t _sid = sid.load(memory_order_relaxed);
+        size_t _sid = sid.load(memory_order_acquire);
         buf_t *_tasks = tasks.load(memory_order_relaxed);
         if (_eid - _sid >= _tasks->cap) {
             // XXX: never try to recycle memory
@@ -149,11 +149,11 @@ struct task_que_t {
 struct worker_t {
 
     task_que_t que;
-    std::mt19937 prng;
+    mt19937 prng;
     const vector<worker_t*> *workers;
-    atomic<bool> *running;
+    atomic<int> *state;
 
-    worker_t(atomic<bool> *_running) : running(_running) {}
+    worker_t(atomic<int> *_state) : state(_state) {}
 
     void tackle(task_t *task) {
         task->expr->eval(task, this);
@@ -161,30 +161,28 @@ struct worker_t {
 
     task_t *get_next() {
         task_t *next;
+        uniform_int_distribution<size_t> dist(0, workers->size()-1);
         if (!que.try_pop(&next))
-            if (workers->empty() || !(*workers)[uniform_int_distribution<size_t>(0, workers->size()-1)(prng)]->que.try_steal(&next))
+            if (workers->empty() || !(*workers)[dist(prng)]->que.try_steal(&next))
                 return NULL;
         return next;
     }
 
-    void loop(const vector<worker_t*> &_workers, bool root) {
+    void loop(const vector<worker_t*> &_workers) {
         workers = &_workers;
-        for (task_t *next; running->load(); ) {
+        for (task_t *next; !state->load(); )
             if ((next = get_next()))
                 tackle(next);
-            else if (root)
-                running->store(false);
-        }
     }
 
-    static void start(const vector<worker_t*> &workers, size_t idx, bool root) {
+    static void start(const vector<worker_t*> &workers, size_t idx) {
 
         vector<worker_t*> nworkers;
         for (size_t i = 0; i < workers.size(); i++)
             if (i != idx)
                 nworkers.push_back(workers[i]);
 
-        workers[idx]->loop(nworkers, root);
+        workers[idx]->loop(nworkers);
     }
 };
 
@@ -244,7 +242,7 @@ struct apply_expr_t : public expr_t {
         worker->tackle(&tfunc);
 
         for (task_t *next; state.load() != 2; )
-            if ((next = worker->get_next()))
+            if (worker->que.try_pop(&next))
                 worker->tackle(next);
 
         cache_hdr_t cache;
@@ -262,7 +260,7 @@ struct apply_expr_t : public expr_t {
 
         if (!do_calc) {
             for (task_t *next; !cache->first->load(); )
-                if ((next = worker->get_next()))
+                if (worker->que.try_pop(&next))
                     worker->tackle(next);
         } else {
             shadow_env_t env(larg, lfunc->env);
@@ -454,22 +452,22 @@ struct parser_t {
         }
 
         lmb_hdr_t retv;
-        atomic<int> state;
+        atomic<int> state(0);
         shadow_env_t senv(nullptr, nenv);
         task_t task{&state, &retv, &senv, prog};
 
         // workers
 
-        atomic<bool> running(true);
         vector<worker_t*> workers;
         for (int i = 0; i < 2; i++)
-            workers.push_back(new worker_t(&running));
+            workers.push_back(new worker_t(&state));
         workers[0]->que.push(&task);
 
         vector<thread*> threads;
         for (size_t i = 1; i < workers.size(); i++)
-            threads.push_back(new thread(worker_t::start, std::ref(workers), i, false));
-        worker_t::start(workers, 0, true);
+            threads.push_back(new thread(worker_t::start, std::ref(workers), i));
+        worker_t::start(workers, 0);
+
         for (auto t : threads)
             t->join();
 
