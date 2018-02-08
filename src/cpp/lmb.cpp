@@ -15,6 +15,7 @@
 using namespace std;
 
 struct lmb_t;
+using lmb_idx_t = unsigned long;
 using lmb_hdr_t = shared_ptr<lmb_t>;
 
 template <typename... Args>
@@ -23,6 +24,8 @@ lmb_hdr_t make_lmb(Args&&... args) {
 }
 
 using env_t = vector<lmb_hdr_t>;
+using env_idx_t = vector<lmb_idx_t>;
+
 struct shadow_env_t {
 
     const lmb_hdr_t &shadow_val;
@@ -37,88 +40,95 @@ struct shadow_env_t {
 };
 
 struct env_hash_t {
-    size_t operator()(const env_t &env) const {
-        auto hasher = hash<lmb_hdr_t>();
+    size_t operator()(const env_idx_t &ienv) const {
+        auto hasher = hash<lmb_idx_t>();
         size_t retv = 0;
-        for (auto &v : env)
+        for (auto &v : ienv)
             retv = retv * 17 + hasher(v);
         return retv;
     }
 };
 
 struct expr_t {
-    unordered_map<env_t, lmb_hdr_t, env_hash_t> cache;
+    mutable unordered_map<env_idx_t, lmb_hdr_t, env_hash_t> cache;
     virtual lmb_hdr_t eval(const shadow_env_t &env) const = 0;
     virtual ~expr_t() {};
 };
 
 struct lmb_t {
 
+    static lmb_idx_t gidx;
+
     const expr_t *body;
     const env_t env;
-    mutable unordered_map<lmb_hdr_t, lmb_hdr_t> cache;
+    lmb_idx_t idx;
+    unordered_map<lmb_idx_t, lmb_hdr_t> cache;
 
-    lmb_t(expr_t *_body, const env_t &_env) :
-        body(_body), env(_env) {}
-
-    lmb_hdr_t exec(const lmb_hdr_t &arg) const {
-        auto it = cache.find(arg);
-        if (it != cache.end())
-            return it->second;
-        else
-            return cache[arg] = body->eval(shadow_env_t(arg, env));
-    }
+    lmb_t(const expr_t *_body, const env_t &_env) :
+        body(_body), env(_env), idx(gidx++) {}
 };
+lmb_idx_t lmb_t::gidx = 0;
 
 struct lmb_expr_t : public expr_t {
 
-    expr_t *body;
-    vector<int> arg_map;
+    const expr_t *body;
+    const vector<size_t> arg_map;
 
-    lmb_expr_t(expr_t *_body, const vector<int> &_arg_map) :
+    lmb_expr_t(const expr_t *_body, const vector<size_t> &_arg_map) :
         body(_body), arg_map(_arg_map) {}
 
     virtual lmb_hdr_t eval(const shadow_env_t &env) const {
 
-        env_t nenv(arg_map.size());
-        for (int i = 0; i < (int)arg_map.size(); i++)
-            nenv[i] = env[arg_map[i]];
+        env_idx_t ienv;
+        ienv.reserve(arg_map.size());
+        for (auto idx : arg_map)
+            ienv.emplace_back(env[idx]->idx);
 
-        auto it = body->cache.find(nenv);
-        if (it != body->cache.end())
-            return it->second;
-        else
-            return body->cache[nenv] = make_shared<lmb_t>(body, nenv);
+        auto &ref = body->cache[ienv];
+        if (ref == nullptr) {
+
+            env_t nenv;
+            nenv.reserve(arg_map.size());
+            for (auto idx : arg_map)
+                nenv.emplace_back(env[idx]);
+
+            ref = make_shared<lmb_t>(body, nenv);
+        }
+
+        return ref;
     }
 };
 
 struct apply_expr_t : public expr_t {
 
-    expr_t* func;
-    expr_t* arg;
+    const expr_t* func;
+    const expr_t* arg;
 
-    apply_expr_t(expr_t *_func, expr_t *_arg) :
+    apply_expr_t(const expr_t *_func, const expr_t *_arg) :
         func(_func), arg(_arg) {}
 
     virtual lmb_hdr_t eval(const shadow_env_t &env) const {
         auto lfunc = func->eval(env);
         auto larg = arg->eval(env);
-        return lfunc->exec(larg);
+        auto &ref = lfunc->cache[larg->idx];
+        if (ref == nullptr)
+            ref = lfunc->body->eval(shadow_env_t(larg, lfunc->env));
+        return ref;
     }
 };
 
 struct ref_expr_t : public expr_t {
 
-    int ref_idx;
+    const size_t ref_idx;
 
-    ref_expr_t(int _ref_idx) : ref_idx(_ref_idx) {}
+    ref_expr_t(size_t _ref_idx) : ref_idx(_ref_idx) {}
 
     virtual lmb_hdr_t eval(const shadow_env_t &env) const {
         return env[ref_idx];
     }
 };
 
-// parser
+// parser {{{
 
 struct tokenizer_t {
 
@@ -196,19 +206,19 @@ struct tokenizer_t {
 
 struct parser_t {
 
-    map<tuple<int>, expr_t*> cache_ref;
-    map<tuple<vector<int>, expr_t*>, expr_t*> cache_lmb;
-    map<tuple<expr_t*, expr_t*>, expr_t*> cache_apply;
+    map<tuple<size_t>, const expr_t*> cache_ref;
+    map<tuple<vector<size_t>, const expr_t*>, const expr_t*> cache_lmb;
+    map<tuple<const expr_t*, const expr_t*>, const expr_t*> cache_apply;
 
     parser_t() {}
 
-    expr_t *parse_single_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
+    const expr_t *parse_single_expr(tokenizer_t &tok, map<string, size_t> &ref) {
 
         string token = tok.pop();
         assert(token != "");
 
         if (token == "(") {
-            auto retv = parse_expr(tok, ref, depth+1);
+            auto retv = parse_expr(tok, ref);
             assert(tok.peak() == ")");
             tok.pop();
             return retv;
@@ -216,50 +226,44 @@ struct parser_t {
         if (token != "\\") {
             if (!ref.count(token))
                 ref.insert(make_pair(token, ref.size()));
-            auto key = make_tuple(ref[token]);
-            auto it = cache_ref.find(key);
-            if (it != cache_ref.end())
-                return it->second;
-            else
-                return cache_ref[key] = new ref_expr_t(ref[token]);
+            auto &ent = cache_ref[make_tuple(ref[token])];
+            if (ent == nullptr)
+                ent = new ref_expr_t(ref[token]);
+            return ent;
         }
 
         // lambda
 
-        map<string, int> nref;
+        map<string, size_t> nref;
         string arg = tok.pop();
         assert(arg != "(" && arg != ")" && arg != "\\");
         nref[arg] = 0;
-        expr_t *body = parse_expr(tok, nref, depth+1);
+        const expr_t *body = parse_expr(tok, nref);
 
         nref.erase(arg);
-        vector<int> arg_map(nref.size());
+        vector<size_t> arg_map(nref.size());
         for (auto pair : nref) {
             if (!ref.count(pair.first))
                 ref.insert(make_pair(pair.first, ref.size()));
             arg_map[pair.second-1] = ref[pair.first];
         }
 
-        auto key = make_tuple(arg_map, body);
-        auto it = cache_lmb.find(key);
-        if (it != cache_lmb.end())
-            return it->second;
-        else
-            return cache_lmb[key] = new lmb_expr_t(body, arg_map);
+        auto &ent = cache_lmb[make_tuple(arg_map, body)];
+        if (ent == nullptr)
+            ent = new lmb_expr_t(body, arg_map);
+        return ent;
     }
 
-    expr_t *parse_expr(tokenizer_t &tok, map<string, int> &ref, int depth=0) {
+    const expr_t *parse_expr(tokenizer_t &tok, map<string, size_t> &ref) {
 
-        expr_t *func = parse_single_expr(tok, ref, depth+1);
+        const expr_t *func = parse_single_expr(tok, ref);
         while (tok.peak() != ")") {
             assert(tok.peak() != "");
-            auto arg = parse_single_expr(tok, ref, depth+1);
-            auto key = make_tuple(func, arg);
-            auto it = cache_apply.find(key);
-            if (it != cache_apply.end()) {
-                func = it->second;
-            } else
-                func = cache_apply[key] = new apply_expr_t(func, arg);
+            auto arg = parse_single_expr(tok, ref);
+            auto &ent = cache_apply[make_tuple(func, arg)];
+            if (ent == nullptr)
+                ent = new apply_expr_t(func, arg);
+            func = ent;
         }
 
         return func;
@@ -270,9 +274,9 @@ struct parser_t {
         if (tok.peak() == "")
             return false;
 
-        map<string, int> ref;
+        map<string, size_t> ref;
         ref[""] = 0; // nullptr arg
-        expr_t *prog = parse_single_expr(tok, ref);
+        const expr_t *prog = parse_single_expr(tok, ref);
         ref.erase("");
 
         env_t nenv(ref.size());
@@ -288,7 +292,9 @@ struct parser_t {
     }
 };
 
-// runtime
+// }}}
+
+// runtime {{{
 
 void output(int bit) {
 
@@ -342,7 +348,9 @@ struct builtin_g_expr_t : public expr_t {
     }
 };
 
-// main
+// }}}
+
+// main {{{
 
 int main(int argc, char *args[]) {
 
@@ -359,3 +367,5 @@ int main(int argc, char *args[]) {
 
     while (parser.run_once(toks, env));
 }
+
+// }}}
