@@ -521,10 +521,10 @@ def (
 # builtin io
 def (
   Int: \b
-  new IO (World: \w pair w (
+  new IO (World: \w pair (new World (inc (value_of w))) (
     if (b == 0)
-      (\_ new Dummy (__builtin_p0 b))
-      (\_ new Dummy (__builtin_p1 b))))
+      (\_ new Dummy (__builtin_p0 w))
+      (\_ new Dummy (__builtin_p1 w))))
 ) \putb
 def (
   Char: \c
@@ -537,7 +537,7 @@ def (
         return (: v acc))) 8 (ord c)
 ) \putc
 def (mapM putc) \puts
-def (new IO (World: \w pair w (__builtin_g (Just 0) (Just 1) Nothing .))) \getb
+def (new IO (World: \w pair (new World (inc (value_of w))) (__builtin_g (Just 0) (Just 1) Nothing w))) \getb
 def (
   (Y \getc Int: \n Int: \v
     if (0 == n)

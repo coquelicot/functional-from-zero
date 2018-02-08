@@ -54,8 +54,6 @@ struct expr_t {
 
 struct lmb_t {
 
-    static bool pure;
-
     const expr_t *body;
     const env_t env;
     mutable unordered_map<lmb_hdr_t, lmb_hdr_t> cache;
@@ -64,25 +62,13 @@ struct lmb_t {
         body(_body), env(_env) {}
 
     lmb_hdr_t exec(const lmb_hdr_t &arg) const {
-
         auto it = cache.find(arg);
         if (it != cache.end())
             return it->second;
-
-        bool _pure = pure;
-        pure = true;
-        auto retv = body->eval(shadow_env_t(arg, env));
-
-        if (pure) {
-            pure = _pure;
-            return cache[arg] = retv;
-        } else {
-            pure = false;
-            return retv;
-        }
+        else
+            return cache[arg] = body->eval(shadow_env_t(arg, env));
     }
 };
-bool lmb_t::pure = true;
 
 struct lmb_expr_t : public expr_t {
 
@@ -315,8 +301,6 @@ void output(int bit) {
         cout.flush();
         pos = 7, val = 0;
     }
-
-    lmb_t::pure = false;
 }
 
 int input() {
@@ -333,7 +317,6 @@ int input() {
         pos = 7;
     }
 
-    lmb_t::pure = false;
     return (val >> pos--) & 1;
 }
 
