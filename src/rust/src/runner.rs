@@ -66,23 +66,36 @@ type LambdaReturn<'a> = Result<(ArcLambda<'a>, bool), Error<'a>>;
 
 trait LambdaValue<'a>: fmt::Debug + Send + Sync {
     fn apply(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a>;
+    fn apply_parallel(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a> {
+        self.apply(arg, cache)
+    }
+    fn is_always_pure(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug)]
 struct Lambda<'a> {
     value: Box<LambdaValue<'a> + 'a>,
     id: usize,
+    always_pure: bool,
 }
 
 impl<'a> Lambda<'a> {
     fn new(value: Box<LambdaValue<'a> + 'a>, cache: &RunCache) -> Lambda<'a> {
+        let always_pure = value.is_always_pure();
         Lambda {
             value,
             id: cache.new_id(),
+            always_pure,
         }
     }
-    fn apply(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a> {
-        self.value.apply(arg, cache)
+    fn apply<J: Joiner>(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a> {
+        if J::is_parallel() {
+            self.value.apply_parallel(arg, cache)
+        } else {
+            self.value.apply(arg, cache)
+        }
     }
 }
 
@@ -109,22 +122,39 @@ impl<'a> LambdaValue<'a> for Closure<'a> {
         };
         run_impl::<Sequential>(self.body, &environment, cache)
     }
+    fn apply_parallel(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a> {
+        let environment = OverlayEnvironment {
+            base: Arc::clone(&self.environment),
+            arg_value: arg,
+        };
+        run_impl::<Parallel>(self.body, &environment, cache)
+    }
+    fn is_always_pure(&self) -> bool {
+        self.environment.is_always_pure()
+    }
 }
 
 trait Environment<'a>: fmt::Debug + Send + Sync {
     fn get(&self, name: usize) -> ArcLambda<'a>;
+    fn is_always_pure(&self) -> bool;
+    fn is_small(&self) -> bool;
 }
 
 #[derive(Debug)]
 struct BaseEnvironment<'a> {
     values: Vec<ArcLambda<'a>>,
+    always_pure: bool,
 }
 
 impl<'a> BaseEnvironment<'a> {
     fn new() -> BaseEnvironment<'a> {
-        BaseEnvironment { values: vec![] }
+        BaseEnvironment {
+            values: vec![],
+            always_pure: true,
+        }
     }
     fn push(&mut self, lambda: ArcLambda<'a>) {
+        self.always_pure &= lambda.always_pure;
         self.values.push(lambda);
     }
 }
@@ -132,6 +162,12 @@ impl<'a> BaseEnvironment<'a> {
 impl<'a> Environment<'a> for BaseEnvironment<'a> {
     fn get(&self, name: usize) -> ArcLambda<'a> {
         Arc::clone(&self.values[name])
+    }
+    fn is_always_pure(&self) -> bool {
+        self.always_pure
+    }
+    fn is_small(&self) -> bool {
+        self.values.len() <= 2
     }
 }
 
@@ -178,6 +214,12 @@ impl<'a> Environment<'a> for OverlayEnvironment<'a> {
             self.base.get(name - 1)
         }
     }
+    fn is_always_pure(&self) -> bool {
+        self.base.is_always_pure() && self.arg_value.always_pure
+    }
+    fn is_small(&self) -> bool {
+        self.base.is_small()
+    }
 }
 
 lazy_static! {
@@ -198,7 +240,11 @@ impl DebugLambda {
 
 impl<'a> LambdaValue<'a> for DebugLambda {
     fn apply(&self, arg: ArcLambda<'a>, _: &RunCache) -> LambdaReturn<'a> {
-        println!("[debug] arg = {:p}", arg.as_ref());
+        println!(
+            "[debug] arg = {:p}, arg_always_pure = {}",
+            arg.as_ref(),
+            arg.always_pure
+        );
         Ok((arg, true))
     }
 }
@@ -331,6 +377,8 @@ struct RunCache<'a> {
     closure_cache: CHashMap<(Arc<BaseEnvironment<'a>>, usize), ArcLambda<'a>>,
     apply_cache: CHashMap<(usize, usize), ArcLambda<'a>>,
     id_counter: AtomicUsize,
+    c1: AtomicUsize,
+    c2: AtomicUsize,
 }
 
 impl<'a> RunCache<'a> {
@@ -339,6 +387,8 @@ impl<'a> RunCache<'a> {
             closure_cache: CHashMap::new(),
             apply_cache: CHashMap::new(),
             id_counter: AtomicUsize::new(0),
+            c1: AtomicUsize::new(0),
+            c2: AtomicUsize::new(0),
         }
     }
 
@@ -360,22 +410,48 @@ fn run_impl<'a, J: Joiner>(
             ref lambda,
             ref parameter,
         }) => {
-            let (lambda, lambda_pure) = run_impl::<J>(lambda, environment, cache)?;
-            let (parameter, parameter_pure) = run_impl::<J>(parameter, environment, cache)?;
-            // let (lambda_res, parameter_res) = J::join(
-            //     || run_impl::<J>(lambda, environment, cache),
-            //     || run_impl::<J>(parameter, environment, cache),
-            // );
-            // let (lambda, lambda_pure) = lambda_res?;
-            // let (parameter, parameter_pure) = parameter_res?;
+            let (lambda_res, parameter_res) = if environment.is_small() {
+                (
+                    run_impl::<J>(lambda, environment, cache),
+                    run_impl::<J>(parameter, environment, cache),
+                )
+            } else {
+                J::join(
+                    || run_impl::<J>(lambda, environment, cache),
+                    || run_impl::<J>(parameter, environment, cache),
+                )
+            };
+            let (lambda, lambda_pure) = lambda_res?;
+            let (parameter, parameter_pure) = parameter_res?;
             let key = (lambda.id, parameter.id);
             if let Some(result) = cache.apply_cache.get(&key) {
                 return Ok((result.clone(), lambda_pure && parameter_pure));
             }
-            let (result, apply_pure) = lambda.apply(parameter, cache)?;
-            if apply_pure {
-                cache.apply_cache.insert(key, result.clone());
-            }
+            let (result, apply_pure) = if !J::is_parallel() && lambda.always_pure && parameter_pure
+            {
+                lambda.apply::<Parallel>(parameter, cache)?
+            } else {
+                lambda.apply::<J>(parameter, cache)?
+            };
+            let result = if apply_pure {
+                cache.apply_cache.upsert(
+                    key.clone(),
+                    || {
+                        cache.c1.fetch_add(1, Ordering::Relaxed);
+                        result.clone()
+                    },
+                    |_| {
+                        cache.c2.fetch_add(1, Ordering::Relaxed);
+                    },
+                );
+                cache
+                    .apply_cache
+                    .get(&key)
+                    .expect("apply_cache upsert empty...")
+                    .clone()
+            } else {
+                result
+            };
             Ok((result, lambda_pure && parameter_pure && apply_pure))
         }
         ExpressionValue::Lambda(transformer::LambdaExpression {
@@ -388,18 +464,27 @@ fn run_impl<'a, J: Joiner>(
             }
             let new_environment = Arc::from(new_environment);
             let key = (new_environment.clone(), body.id);
-            if let Some(result) = cache.closure_cache.get(&key) {
-                return Ok((result.clone(), true));
-            }
-            let result = Arc::from(Lambda::new(
-                Box::from(Closure {
-                    environment: new_environment,
-                    body: body,
-                }),
-                cache,
-            ));
-            cache.closure_cache.insert(key, result.clone());
-            Ok((result, true))
+            cache.closure_cache.upsert(
+                key.clone(),
+                || {
+                    Arc::from(Lambda::new(
+                        Box::from(Closure {
+                            environment: new_environment,
+                            body: body,
+                        }),
+                        cache,
+                    ))
+                },
+                |_| {},
+            );
+            Ok((
+                cache
+                    .closure_cache
+                    .get(&key)
+                    .expect("closure_cache upsert empty...")
+                    .clone(),
+                true,
+            ))
         }
     }
 }
@@ -435,6 +520,11 @@ pub fn run<'a>(
     if !undefined_vars.is_empty() {
         return Err(Error::UndefinedVariable(undefined_vars));
     }
-    run_impl::<Sequential>(expression, &environment, &mut cache)?;
+    run_impl::<Parallel>(expression, &environment, &mut cache)?;
+    println!(
+        "cache={}, dup={}",
+        cache.c1.load(Ordering::SeqCst),
+        cache.c2.load(Ordering::SeqCst)
+    );
     Ok(())
 }

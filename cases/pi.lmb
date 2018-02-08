@@ -519,7 +519,6 @@
   def 10 \newline
   def (32 + 16) \'0' def (inc '0') \'1' def (inc '1') \'2' def (inc '2') \'3' def (inc '3') \'4'
   def (inc '4') \'5' def (inc '5') \'6' def (inc '6') \'7' def (inc '7') \'8' def (inc '8') \'9'
-  def (0d { 2 5 5 }) \EOF
 
   # IO
   # a -> IO a
@@ -532,6 +531,7 @@
 
   # Basic IO
   # IO Bool
+  # TODO(Darkpi): Fix EOF.
   def ([IO] \_ __builtin_g False True _ _) \_getbit
   # Bool -> IO ()
   def (Bool: \b [IO] (\_ if b (\_ __builtin_p1 _) (\_ __builtin_p0 _))) \_putbit
@@ -585,11 +585,12 @@
 
   def (Y \main \_
     read >>= \x
-    # TODO: Handle EOF properly
     read >>= \y
     if ((x U32::== 0) && (y U32::== 0))
        (\_ return _)
        (\_ puts (gcd x y) >>= \_ main _)) \main
+
+  def (__builtin_debug id) \_
 
   _runIO (main _)
 )) \x \y y x)
