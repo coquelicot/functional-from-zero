@@ -9,13 +9,20 @@
 #include <utility>
 #include <tuple>
 #include <functional>
+#include <atomic>
+#include <random>
+#include <thread>
+#include <mutex>
 #include <cctype>
+#include <cstring>
 #include <cassert>
 
 using namespace std;
 
 struct lmb_t;
 using lmb_hdr_t = shared_ptr<lmb_t>;
+using cache_t = pair<shared_ptr<atomic<bool>>, lmb_hdr_t>;
+using cache_hdr_t = shared_ptr<cache_t>;
 
 template <typename... Args>
 lmb_hdr_t make_lmb(Args&&... args) {
@@ -46,43 +53,150 @@ struct env_hash_t {
     }
 };
 
+struct task_t;
+struct worker_t;
 struct expr_t {
+    mutex lock;
     unordered_map<env_t, lmb_hdr_t, env_hash_t> cache;
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const = 0;
+    virtual void eval(task_t *task, worker_t *worker) const = 0;
     virtual ~expr_t() {};
 };
 
-struct lmb_t {
+// worker
 
-    static bool pure;
+struct task_t {
+    atomic<int> *state;
+    lmb_hdr_t *val;
+    const shadow_env_t *env;
+    const expr_t *expr;
+};
 
-    const expr_t *body;
-    const env_t env;
-    mutable unordered_map<lmb_hdr_t, lmb_hdr_t> cache;
+struct task_que_t {
 
-    lmb_t(expr_t *_body, const env_t &_env) :
-        body(_body), env(_env) {}
+    struct buf_t {
 
-    lmb_hdr_t exec(const lmb_hdr_t &arg) const {
+        size_t const cap;
+        atomic<task_t*> * const buf;
 
-        auto it = cache.find(arg);
-        if (it != cache.end())
-            return it->second;
+        buf_t(size_t _cap=256) : cap(_cap), buf(new atomic<task_t*>[cap]) {}
 
-        bool _pure = pure;
-        pure = true;
-        auto retv = body->eval(shadow_env_t(arg, env));
-
-        if (pure) {
-            pure = _pure;
-            return cache[arg] = retv;
-        } else {
-            pure = false;
+        static buf_t *extended(const buf_t *ref) {
+            buf_t *retv = new buf_t(ref->cap * 2);
+            for (size_t i = 0; i < ref->cap; i++) {
+                task_t *val = ref->buf[i].load(memory_order_relaxed);
+                retv->buf[i].store(val, memory_order_relaxed);
+                retv->buf[i + ref->cap].store(val, memory_order_relaxed);
+            }
             return retv;
         }
+    };
+
+    atomic<size_t> sid;
+    atomic<size_t> eid;
+    atomic<buf_t*> tasks;
+
+    task_que_t() :
+        sid(1), eid(1), tasks(new buf_t()) {}
+
+    bool try_steal(task_t **retv) {
+        size_t _sid = sid.load(memory_order_acquire);
+        atomic_thread_fence(memory_order_seq_cst);
+        size_t _eid = eid.load(memory_order_acquire);
+        if (_sid < _eid) {
+            buf_t *_tasks = tasks.load(memory_order_consume);
+            *retv = _tasks->buf[_sid % _tasks->cap];
+            return sid.compare_exchange_strong(_sid, _sid+1, memory_order_seq_cst, memory_order_relaxed);
+        }
+        return false;
+    }
+
+    bool try_pop(task_t **retv) {
+        size_t _eid = eid.load(memory_order_relaxed) - 1;
+        buf_t *_tasks = tasks.load(memory_order_relaxed);
+        eid.store(_eid, memory_order_relaxed);
+        atomic_thread_fence(memory_order_seq_cst);
+        size_t _sid = sid.load(memory_order_relaxed);
+        if (_sid <= _eid) {
+            *retv = _tasks->buf[_eid % _tasks->cap].load(memory_order_relaxed);
+            if (_sid == _eid) {
+                bool succ = sid.compare_exchange_strong(_sid, _sid + 1, memory_order_seq_cst, memory_order_relaxed);
+                eid.store(_eid + 1, memory_order_relaxed);
+                return succ;
+            } else {
+                return true;
+            }
+        } else {
+            eid.store(_eid + 1, memory_order_relaxed);
+            return false;
+        }
+    }
+
+    void push(task_t *ntask) {
+        size_t _eid = eid.load(memory_order_relaxed);
+        size_t _sid = sid.load(memory_order_relaxed);
+        buf_t *_tasks = tasks.load(memory_order_relaxed);
+        if (_eid - _sid >= _tasks->cap) {
+            // XXX: never try to recycle memory
+            _tasks = buf_t::extended(_tasks);
+            tasks.store(_tasks, memory_order_seq_cst); // Is this correct?
+        }
+        _tasks->buf[_eid % _tasks->cap].store(ntask, memory_order_relaxed);
+        atomic_thread_fence(memory_order_release);
+        eid.store(_eid + 1, memory_order_relaxed);
     }
 };
-bool lmb_t::pure = true;
+
+struct worker_t {
+
+    task_que_t que;
+    std::mt19937 prng;
+    const vector<worker_t*> *workers;
+    atomic<bool> *running;
+
+    worker_t(atomic<bool> *_running) : running(_running) {}
+
+    void tackle(task_t *task) {
+        task->expr->eval(task, this);
+    }
+
+    task_t *get_next() {
+        task_t *next;
+        if (!que.try_pop(&next))
+            if (workers->empty() || !(*workers)[uniform_int_distribution<size_t>(0, workers->size()-1)(prng)]->que.try_steal(&next))
+                return NULL;
+        return next;
+    }
+
+    void loop(const vector<worker_t*> &_workers, bool root) {
+        workers = &_workers;
+        for (task_t *next; running->load(); ) {
+            if ((next = get_next()))
+                tackle(next);
+            else if (root)
+                running->store(false);
+        }
+    }
+
+    static void start(const vector<worker_t*> &workers, size_t idx, bool root) {
+
+        vector<worker_t*> nworkers;
+        for (size_t i = 0; i < workers.size(); i++)
+            if (i != idx)
+                nworkers.push_back(workers[i]);
+
+        workers[idx]->loop(nworkers, root);
+    }
+};
+
+
+struct lmb_t {
+    const expr_t *body;
+    const env_t env;
+    mutex lock;
+    unordered_map<lmb_hdr_t, cache_hdr_t> cache;
+    lmb_t(expr_t *_body, const env_t &_env) :
+        body(_body), env(_env) {}
+};
 
 struct lmb_expr_t : public expr_t {
 
@@ -92,17 +206,21 @@ struct lmb_expr_t : public expr_t {
     lmb_expr_t(expr_t *_body, const vector<int> &_arg_map) :
         body(_body), arg_map(_arg_map) {}
 
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
+    virtual void eval(task_t *task, worker_t *worker) const {
 
         env_t nenv(arg_map.size());
         for (int i = 0; i < (int)arg_map.size(); i++)
-            nenv[i] = env[arg_map[i]];
+            nenv[i] = (*task->env)[arg_map[i]];
 
-        auto it = body->cache.find(nenv);
-        if (it != body->cache.end())
-            return it->second;
-        else
-            return body->cache[nenv] = make_shared<lmb_t>(body, nenv);
+        {
+            lock_guard<mutex> guard(body->lock);
+            auto it = body->cache.find(nenv);
+            if (it != body->cache.end())
+                *task->val = it->second;
+            else
+                *task->val = body->cache[nenv] = make_shared<lmb_t>(body, nenv);
+        }
+        task->state->fetch_add(1);
     }
 };
 
@@ -114,10 +232,47 @@ struct apply_expr_t : public expr_t {
     apply_expr_t(expr_t *_func, expr_t *_arg) :
         func(_func), arg(_arg) {}
 
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
-        auto lfunc = func->eval(env);
-        auto larg = arg->eval(env);
-        return lfunc->exec(larg);
+    virtual void eval(task_t *task, worker_t *worker) const {
+
+        lmb_hdr_t lfunc;
+        lmb_hdr_t larg;
+        atomic<int> state(0);
+
+        task_t tfunc{&state, &lfunc, task->env, func};
+        task_t targ{&state, &larg, task->env, arg};
+        worker->que.push(&targ);
+        worker->tackle(&tfunc);
+
+        for (task_t *next; state.load() != 2; )
+            if ((next = worker->get_next()))
+                worker->tackle(next);
+
+        cache_hdr_t cache;
+        bool do_calc = true;
+        {
+            lock_guard<mutex> guard(lfunc->lock);
+            auto it = lfunc->cache.find(larg);
+            if (it != lfunc->cache.end()) {
+                cache = it->second;
+                do_calc = false;
+            } else {
+                cache = lfunc->cache[larg] = make_shared<cache_t>(make_shared<atomic<bool>>(false), nullptr);
+            }
+        }
+
+        if (!do_calc) {
+            for (task_t *next; !cache->first->load(); )
+                if ((next = worker->get_next()))
+                    worker->tackle(next);
+        } else {
+            shadow_env_t env(larg, lfunc->env);
+            task_t tapply{&state, &cache->second, &env, lfunc->body};
+            worker->tackle(&tapply);
+            cache->first->store(true);
+        }
+
+        *task->val = cache->second;
+        task->state->fetch_add(1);
     }
 };
 
@@ -127,8 +282,9 @@ struct ref_expr_t : public expr_t {
 
     ref_expr_t(int _ref_idx) : ref_idx(_ref_idx) {}
 
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
-        return env[ref_idx];
+    virtual void eval(task_t *task, worker_t *worker) const {
+        *task->val = (*task->env)[ref_idx];
+        task->state->fetch_add(1);
     }
 };
 
@@ -297,7 +453,26 @@ struct parser_t {
             nenv[pair.second-1] = env[pair.first];
         }
 
-        prog->eval(shadow_env_t(nullptr, nenv));
+        lmb_hdr_t retv;
+        atomic<int> state;
+        shadow_env_t senv(nullptr, nenv);
+        task_t task{&state, &retv, &senv, prog};
+
+        // workers
+
+        atomic<bool> running(true);
+        vector<worker_t*> workers;
+        for (int i = 0; i < 2; i++)
+            workers.push_back(new worker_t(&running));
+        workers[0]->que.push(&task);
+
+        vector<thread*> threads;
+        for (size_t i = 1; i < workers.size(); i++)
+            threads.push_back(new thread(worker_t::start, std::ref(workers), i, false));
+        worker_t::start(workers, 0, true);
+        for (auto t : threads)
+            t->join();
+
         return true;
     }
 };
@@ -315,8 +490,6 @@ void output(int bit) {
         cout.flush();
         pos = 7, val = 0;
     }
-
-    lmb_t::pure = false;
 }
 
 int input() {
@@ -333,29 +506,31 @@ int input() {
         pos = 7;
     }
 
-    lmb_t::pure = false;
     return (val >> pos--) & 1;
 }
 
 
 struct builtin_p0_expr_t : public expr_t {
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
+    virtual void eval(task_t *task, worker_t *worker) const {
         output(0);
-        return env[0];
+        *task->val = (*task->env)[0];
+        task->state->fetch_add(1);
     }
 };
 
 struct builtin_p1_expr_t : public expr_t {
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
+    virtual void eval(task_t *task, worker_t *worker) const {
         output(1);
-        return env[0];
+        *task->val = (*task->env)[0];
+        task->state->fetch_add(1);
     }
 };
 
 struct builtin_g_expr_t : public expr_t {
-    virtual lmb_hdr_t eval(const shadow_env_t &env) const {
+    virtual void eval(task_t *task, worker_t *worker) const {
         int bit = input();
-        return bit == EOF ? env[3] : env[bit+1];
+        *task->val = bit == EOF ? (*task->env)[3] : (*task->env)[bit+1];
+        task->state->fetch_add(1);
     }
 };
 
