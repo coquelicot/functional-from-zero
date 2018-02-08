@@ -69,25 +69,19 @@ trait LambdaValue<'a>: fmt::Debug + Send + Sync {
     fn apply_parallel(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a> {
         self.apply(arg, cache)
     }
-    fn is_always_pure(&self) -> bool {
-        false
-    }
 }
 
 #[derive(Debug)]
 struct Lambda<'a> {
     value: Box<LambdaValue<'a> + 'a>,
     id: usize,
-    always_pure: bool,
 }
 
 impl<'a> Lambda<'a> {
     fn new(value: Box<LambdaValue<'a> + 'a>, cache: &RunCache) -> Lambda<'a> {
-        let always_pure = value.is_always_pure();
         Lambda {
             value,
             id: cache.new_id(),
-            always_pure,
         }
     }
     fn apply<J: Joiner>(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a> {
@@ -129,32 +123,22 @@ impl<'a> LambdaValue<'a> for Closure<'a> {
         };
         run_impl::<Parallel>(self.body, &environment, cache)
     }
-    fn is_always_pure(&self) -> bool {
-        self.environment.is_always_pure()
-    }
 }
 
 trait Environment<'a>: fmt::Debug + Send + Sync {
     fn get(&self, name: usize) -> ArcLambda<'a>;
-    fn is_always_pure(&self) -> bool;
-    fn is_small(&self) -> bool;
 }
 
 #[derive(Debug)]
 struct BaseEnvironment<'a> {
     values: Vec<ArcLambda<'a>>,
-    always_pure: bool,
 }
 
 impl<'a> BaseEnvironment<'a> {
     fn new() -> BaseEnvironment<'a> {
-        BaseEnvironment {
-            values: vec![],
-            always_pure: true,
-        }
+        BaseEnvironment { values: vec![] }
     }
     fn push(&mut self, lambda: ArcLambda<'a>) {
-        self.always_pure &= lambda.always_pure;
         self.values.push(lambda);
     }
 }
@@ -162,12 +146,6 @@ impl<'a> BaseEnvironment<'a> {
 impl<'a> Environment<'a> for BaseEnvironment<'a> {
     fn get(&self, name: usize) -> ArcLambda<'a> {
         Arc::clone(&self.values[name])
-    }
-    fn is_always_pure(&self) -> bool {
-        self.always_pure
-    }
-    fn is_small(&self) -> bool {
-        self.values.len() <= 2
     }
 }
 
@@ -214,12 +192,6 @@ impl<'a> Environment<'a> for OverlayEnvironment<'a> {
             self.base.get(name - 1)
         }
     }
-    fn is_always_pure(&self) -> bool {
-        self.base.is_always_pure() && self.arg_value.always_pure
-    }
-    fn is_small(&self) -> bool {
-        self.base.is_small()
-    }
 }
 
 lazy_static! {
@@ -240,11 +212,7 @@ impl DebugLambda {
 
 impl<'a> LambdaValue<'a> for DebugLambda {
     fn apply(&self, arg: ArcLambda<'a>, _: &RunCache) -> LambdaReturn<'a> {
-        println!(
-            "[debug] arg = {:p}, arg_always_pure = {}",
-            arg.as_ref(),
-            arg.always_pure
-        );
+        println!("[debug] arg = {:p}", arg.as_ref());
         Ok((arg, true))
     }
 }
@@ -410,29 +378,17 @@ fn run_impl<'a, J: Joiner>(
             ref lambda,
             ref parameter,
         }) => {
-            let (lambda_res, parameter_res) = if environment.is_small() {
-                (
-                    run_impl::<J>(lambda, environment, cache),
-                    run_impl::<J>(parameter, environment, cache),
-                )
-            } else {
-                J::join(
-                    || run_impl::<J>(lambda, environment, cache),
-                    || run_impl::<J>(parameter, environment, cache),
-                )
-            };
+            let (lambda_res, parameter_res) = J::join(
+                || run_impl::<J>(lambda, environment, cache),
+                || run_impl::<J>(parameter, environment, cache),
+            );
             let (lambda, lambda_pure) = lambda_res?;
             let (parameter, parameter_pure) = parameter_res?;
             let key = (lambda.id, parameter.id);
             if let Some(result) = cache.apply_cache.get(&key) {
                 return Ok((result.clone(), lambda_pure && parameter_pure));
             }
-            let (result, apply_pure) = if !J::is_parallel() && lambda.always_pure && parameter_pure
-            {
-                lambda.apply::<Parallel>(parameter, cache)?
-            } else {
-                lambda.apply::<J>(parameter, cache)?
-            };
+            let (result, apply_pure) = lambda.apply::<J>(parameter, cache)?;
             let result = if apply_pure {
                 cache.apply_cache.upsert(
                     key.clone(),
