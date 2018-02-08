@@ -1,8 +1,8 @@
 use std::{error, fmt};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
 
 use chashmap::CHashMap;
 use rayon;
@@ -72,9 +72,10 @@ trait LambdaValue<'a>: fmt::Debug + Send + Sync {
 }
 
 #[derive(Debug)]
-struct Lambda<'a> {
+pub struct Lambda<'a> {
     value: Box<LambdaValue<'a> + 'a>,
     id: usize,
+    apply_cache: RwLock<HashMap<usize, ArcLambda<'a>>>,
 }
 
 impl<'a> Lambda<'a> {
@@ -82,6 +83,7 @@ impl<'a> Lambda<'a> {
         Lambda {
             value,
             id: cache.new_id(),
+            apply_cache: RwLock::new(HashMap::new()),
         }
     }
     fn apply<J: Joiner>(&self, arg: ArcLambda<'a>, cache: &RunCache<'a>) -> LambdaReturn<'a> {
@@ -130,7 +132,7 @@ trait Environment<'a>: fmt::Debug + Send + Sync {
 }
 
 #[derive(Debug)]
-struct BaseEnvironment<'a> {
+pub struct BaseEnvironment<'a> {
     values: Vec<ArcLambda<'a>>,
 }
 
@@ -343,7 +345,6 @@ impl<'a> fmt::Display for Error<'a> {
 
 struct RunCache<'a> {
     closure_cache: CHashMap<(Arc<BaseEnvironment<'a>>, usize), ArcLambda<'a>>,
-    apply_cache: CHashMap<(usize, usize), ArcLambda<'a>>,
     id_counter: AtomicUsize,
     c1: AtomicUsize,
     c2: AtomicUsize,
@@ -353,7 +354,6 @@ impl<'a> RunCache<'a> {
     fn new() -> RunCache<'a> {
         RunCache {
             closure_cache: CHashMap::new(),
-            apply_cache: CHashMap::new(),
             id_counter: AtomicUsize::new(0),
             c1: AtomicUsize::new(0),
             c2: AtomicUsize::new(0),
@@ -384,27 +384,38 @@ fn run_impl<'a, J: Joiner>(
             );
             let (lambda, lambda_pure) = lambda_res?;
             let (parameter, parameter_pure) = parameter_res?;
-            let key = (lambda.id, parameter.id);
-            if let Some(result) = cache.apply_cache.get(&key) {
+            let key = parameter.id;
+            if let Some(result) = lambda.apply_cache.read().unwrap().get(&key) {
                 return Ok((result.clone(), lambda_pure && parameter_pure));
             }
             let (result, apply_pure) = lambda.apply::<J>(parameter, cache)?;
             let result = if apply_pure {
-                cache.apply_cache.upsert(
-                    key.clone(),
-                    || {
-                        cache.c1.fetch_add(1, Ordering::Relaxed);
-                        result.clone()
-                    },
-                    |_| {
-                        cache.c2.fetch_add(1, Ordering::Relaxed);
-                    },
-                );
-                cache
+                cache.c1.fetch_add(1, Ordering::Relaxed);
+                lambda
                     .apply_cache
-                    .get(&key)
-                    .expect("apply_cache upsert empty...")
+                    .write()
+                    .unwrap()
+                    .entry(key)
+                    .or_insert_with(|| {
+                        cache.c2.fetch_add(1, Ordering::Relaxed);
+                        result
+                    })
                     .clone()
+            // lambda.apply_cache.upsert(
+            //     key,
+            //     || {
+            //         cache.c1.fetch_add(1, Ordering::Relaxed);
+            //         result.clone()
+            //     },
+            //     |_| {
+            //         cache.c2.fetch_add(1, Ordering::Relaxed);
+            //     },
+            // );
+            // lambda
+            //     .apply_cache
+            //     .get(&key)
+            //     .expect("apply_cache upsert empty...")
+            //     .clone()
             } else {
                 result
             };
@@ -426,7 +437,7 @@ fn run_impl<'a, J: Joiner>(
                     Arc::from(Lambda::new(
                         Box::from(Closure {
                             environment: new_environment,
-                            body: body,
+                            body,
                         }),
                         cache,
                     ))
@@ -445,10 +456,7 @@ fn run_impl<'a, J: Joiner>(
     }
 }
 
-pub fn run<'a>(
-    expression: &'a Expression,
-    free_vars: &'a Vec<&'a Token<'a>>,
-) -> Result<(), Error<'a>> {
+pub fn run<'a>(expression: &'a Expression, free_vars: Vec<&'a Token<'a>>) -> Result<(), Error<'a>> {
     let mut undefined_vars: Vec<&Token> = vec![];
     let mut environment = BaseEnvironment::new();
     let mut cache = RunCache::new();
