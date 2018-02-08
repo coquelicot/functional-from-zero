@@ -156,8 +156,8 @@ impl<'a> Hash for BaseEnvironment<'a> {
     where
         H: Hasher,
     {
-        for ref val in self.values.iter() {
-            let ptr = Arc::into_raw(Arc::clone(&val));
+        for val in self.values.iter() {
+            let ptr = Arc::into_raw(Arc::clone(val));
             ptr.hash(state);
             let _ = unsafe { Arc::from_raw(ptr) };
         }
@@ -484,7 +484,7 @@ pub fn run<'a>(expression: &'a Expression, free_vars: Vec<&'a Token<'a>>) -> Res
     if !undefined_vars.is_empty() {
         return Err(Error::UndefinedVariable(undefined_vars));
     }
-    run_impl::<Parallel>(expression, &environment, &mut cache)?;
+    run_impl::<Sequential>(expression, &environment, &mut cache)?;
     println!(
         "cache={}, dup={}",
         cache.c1.load(Ordering::SeqCst),
