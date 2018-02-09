@@ -12,46 +12,6 @@
 
 using namespace std;
 
-// shptr_t {{{
-
-template <typename T>
-struct shptr_t {
-
-    T *ptr;
-
-    shptr_t() : ptr(nullptr) {}
-    shptr_t(T *_ptr) : ptr(_ptr) {
-        if (ptr)
-            ++ptr->ref_cnt;
-    }
-    shptr_t(shptr_t &&ref) : ptr(ref.ptr) {
-        ref.ptr = 0x0;
-    }
-    shptr_t(const shptr_t &ref) : shptr_t(ref.ptr) {}
-
-    shptr_t& operator=(const shptr_t &ref) {
-        if (ptr && --ptr->ref_cnt == 0)
-            delete ptr;
-        if ((ptr = ref.ptr))
-            ++ptr->ref_cnt;
-        return *this;
-    }
-
-    ~shptr_t() {
-        if (ptr && --ptr->ref_cnt == 0)
-            delete ptr;
-    }
-
-    T *operator->() const { return ptr; }
-    T& operator*() const { return *ptr; }
-
-    bool operator==(const shptr_t &obj) const {
-        return ptr == obj.ptr;
-    }
-};
-
-// }}}
-
 // hash_map_t {{{
 
 template <typename K, typename V, typename H=hash<K>>
@@ -108,11 +68,11 @@ struct hash_map_t {
 
 struct lmb_t;
 using lmb_idx_t = unsigned long;
-using lmb_hdr_t = shptr_t<const lmb_t>;
+using lmb_hdr_t = shared_ptr<const lmb_t>;
 
 template <typename... Args>
 lmb_hdr_t make_lmb(Args&&... args) {
-    return shptr_t<const lmb_t>(new lmb_t(forward<Args>(args)...));
+    return make_shared<const lmb_t>(forward<Args>(args)...);
 }
 
 using env_t = vector<lmb_hdr_t>;
@@ -150,13 +110,12 @@ struct lmb_t {
     const expr_t *body;
     const env_t env;
     const lmb_idx_t idx;
-    mutable unsigned long ref_cnt;
     mutable hash_map_t<lmb_idx_t, lmb_hdr_t> cache;
 
     lmb_t(const expr_t *_body, const env_t &_env) :
-        body(_body), env(_env), ref_cnt(0), idx(gidx++) {}
+        body(_body), env(_env), idx(gidx++) {}
     lmb_t(const expr_t *_body, env_t &&_env) :
-        body(_body), env(move(_env)), ref_cnt(0), idx(gidx++) {}
+        body(_body), env(move(_env)), idx(gidx++) {}
 };
 lmb_idx_t lmb_t::gidx = 0;
 
