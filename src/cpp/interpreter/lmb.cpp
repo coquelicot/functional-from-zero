@@ -59,39 +59,48 @@ struct hash_map_t {
 
     H hasher;
     size_t size;
-    vector<tuple<bool, size_t, unique_ptr<pair<K, V>>>> table;
+    vector<pair<size_t, unique_ptr<pair<K, V>>>> table;
 
     hash_map_t() : size(0), table(1) {}
 
-    V& operator[](const K& k) {
+    template <class KU>
+    V& operator[](KU&& k) {
+
+        size_t idx;
+        const size_t hash_val = hasher(k);
+        const size_t mask = table.size() - 1;
 
         // exist?
-        size_t idx;
-        const size_t mask = table.size() - 1;
-        const size_t hash_val = hasher(k);
-        for (idx = hash_val & mask; get<0>(table[idx]); idx = (idx + 1) & mask)
-            if (get<1>(table[idx]) == hash_val && get<2>(table[idx])->first == k)
-                return get<2>(table[idx])->second;
+        for (idx = hash_val & mask; table[idx].second; idx = (idx + 1) & mask)
+            if (table[idx].first == hash_val && table[idx].second->first == k)
+                return table[idx].second->second;
 
-        // load < 2/3?
-        if (++size * 3 < table.size() * 2) {
-            table[idx] = make_tuple(true, hash_val, make_unique<pair<K, V>>(k, V()));
-            return get<2>(table[idx])->second;
-        }
+        // insert
+        ++size;
+        table[idx] = move(make_pair(hash_val, make_unique<pair<K, V>>(forward<KU>(k), V())));
+        V& retv = table[idx].second->second;
 
-        // extend
-        decltype(table) ntable(table.size()*2);
+        // extend if load >= 2/3
+        if (size * 3 >= table.size() * 2)
+            _extend();
+
+        return retv;
+    }
+
+    void _extend() {
+
+        decltype(table) ntable(table.size() * 2);
         const size_t nmask = ntable.size() - 1;
-        for (auto &ent : table) if (get<0>(ent)) {
-            for (idx = get<1>(ent) & nmask; get<0>(ntable[idx]); idx = (idx + 1) & nmask);
-            ntable[idx] = move(ent);
-        }
-        table.swap(ntable);
 
-        // reinsert
-        for (idx = hash_val & nmask; get<0>(table[idx]); idx = (idx + 1) & nmask);
-        table[idx] = make_tuple(true, hash_val, make_unique<pair<K, V>>(k, V()));
-        return get<2>(table[idx])->second;
+        for (auto &ent : table)
+            if (ent.second) {
+                size_t idx = ent.first & nmask;
+                while (ntable[idx].second)
+                    idx = (idx + 1) & nmask;
+                ntable[idx] = move(ent);
+            }
+
+        table.swap(ntable);
     }
 };
 
@@ -103,7 +112,7 @@ using lmb_hdr_t = shptr_t<const lmb_t>;
 
 template <typename... Args>
 lmb_hdr_t make_lmb(Args&&... args) {
-    return shptr_t<const lmb_t>(new lmb_t(std::forward<Args>(args)...));
+    return shptr_t<const lmb_t>(new lmb_t(forward<Args>(args)...));
 }
 
 using env_t = vector<lmb_hdr_t>;
@@ -166,7 +175,7 @@ struct lmb_expr_t : public expr_t {
         for (auto idx : arg_map)
             ienv.emplace_back(env[idx]->idx);
 
-        auto &ref = body->cache[ienv];
+        auto &ref = body->cache[move(ienv)];
         if (ref == nullptr) {
 
             env_t nenv;
