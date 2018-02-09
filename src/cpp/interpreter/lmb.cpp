@@ -4,9 +4,9 @@
 #include <deque>
 #include <vector>
 #include <map>
-#include <unordered_map>
 #include <utility>
 #include <tuple>
+#include <memory>
 #include <cctype>
 #include <cassert>
 
@@ -52,6 +52,51 @@ struct shptr_t {
 
 // }}}
 
+// hash_map_t {{{
+
+template <typename K, typename V, typename H=hash<K>>
+struct hash_map_t {
+
+    H hasher;
+    size_t size;
+    vector<tuple<bool, size_t, unique_ptr<pair<K, V>>>> table;
+
+    hash_map_t() : size(0), table(1) {}
+
+    V& operator[](const K& k) {
+
+        // exist?
+        size_t idx;
+        const size_t mask = table.size() - 1;
+        const size_t hash_val = hasher(k);
+        for (idx = hash_val & mask; get<0>(table[idx]); idx = (idx + 1) & mask)
+            if (get<1>(table[idx]) == hash_val && get<2>(table[idx])->first == k)
+                return get<2>(table[idx])->second;
+
+        // load < 2/3?
+        if (++size * 3 < table.size() * 2) {
+            table[idx] = make_tuple(true, hash_val, make_unique<pair<K, V>>(k, V()));
+            return get<2>(table[idx])->second;
+        }
+
+        // extend
+        decltype(table) ntable(table.size()*2);
+        const size_t nmask = ntable.size() - 1;
+        for (auto &ent : table) if (get<0>(ent)) {
+            for (idx = get<1>(ent) & nmask; get<0>(ntable[idx]); idx = (idx + 1) & nmask);
+            ntable[idx] = move(ent);
+        }
+        table.swap(ntable);
+
+        // reinsert
+        for (idx = hash_val & nmask; get<0>(table[idx]); idx = (idx + 1) & nmask);
+        table[idx] = make_tuple(true, hash_val, make_unique<pair<K, V>>(k, V()));
+        return get<2>(table[idx])->second;
+    }
+};
+
+// }}}
+
 struct lmb_t;
 using lmb_idx_t = unsigned long;
 using lmb_hdr_t = shptr_t<const lmb_t>;
@@ -84,7 +129,7 @@ struct env_hash_t {
 };
 
 struct expr_t {
-    mutable unordered_map<env_idx_t, lmb_hdr_t, env_hash_t> cache;
+    mutable hash_map_t<env_idx_t, lmb_hdr_t, env_hash_t> cache;
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const = 0;
     virtual ~expr_t() {};
 };
@@ -97,7 +142,7 @@ struct lmb_t {
     const env_t env;
     const lmb_idx_t idx;
     mutable unsigned long ref_cnt;
-    mutable unordered_map<lmb_idx_t, lmb_hdr_t> cache;
+    mutable hash_map_t<lmb_idx_t, lmb_hdr_t> cache;
 
     lmb_t(const expr_t *_body, const env_t &_env) :
         body(_body), env(_env), ref_cnt(0), idx(gidx++) {}
@@ -121,7 +166,7 @@ struct lmb_expr_t : public expr_t {
         for (auto idx : arg_map)
             ienv.emplace_back(env[idx]->idx);
 
-        auto &ref = body->cache[move(ienv)];
+        auto &ref = body->cache[ienv];
         if (ref == nullptr) {
 
             env_t nenv;
