@@ -5,7 +5,6 @@
 #include <vector>
 #include <map>
 #include <unordered_map>
-#include <memory>
 #include <utility>
 #include <tuple>
 #include <cctype>
@@ -55,12 +54,10 @@ struct shptr_t {
 
 struct lmb_t;
 using lmb_idx_t = unsigned long;
-//using lmb_hdr_t = shared_ptr<const lmb_t>;
 using lmb_hdr_t = shptr_t<const lmb_t>;
 
 template <typename... Args>
 lmb_hdr_t make_lmb(Args&&... args) {
-    //return make_shared<lmb_t>(std::forward<Args>(args)...);
     return shptr_t<const lmb_t>(new lmb_t(std::forward<Args>(args)...));
 }
 
