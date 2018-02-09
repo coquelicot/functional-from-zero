@@ -8,7 +8,6 @@
 #include <memory>
 #include <utility>
 #include <tuple>
-#include <functional>
 #include <cctype>
 #include <cassert>
 
