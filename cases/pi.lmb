@@ -522,19 +522,24 @@
 
   # IO
   # a -> IO a
-  def (\x [IO] (const x)) \return
-  def (IO: \io (_down io) _) \_runIO
+  def (\x [IO] (\w (0::pair x w))) \return
+  def (IO: \io (_down io) 0::0) \_runIO
   # IO a -> (a -> IO b) -> IO b
   def (IO: \io \f
-    [IO] (\_ _runIO (f (_runIO io)))) \f::>>=
+    [IO] (\w
+      def ((_down io) w) \ap
+      def (0::first ap) \a
+      def (0::second ap) \w
+      (_down (f a)) w
+    )) \f::>>=
   def (infixify f::>>=) \>>=
 
   # Basic IO
   # IO Bool
   # TODO(Darkpi): Fix EOF.
-  def ([IO] \_ __builtin_g False True _ _) \_getbit
+  def ([IO] \w (0::pair (__builtin_g False True _ w) (0::inc w))) \_getbit
   # Bool -> IO ()
-  def (Bool: \b [IO] (\_ if b (\_ __builtin_p1 _) (\_ __builtin_p0 _))) \_putbit
+  def (Bool: \b [IO] (\w (0::pair (if b (\_ __builtin_p1 w) (\_ __builtin_p0 w)) (0::inc w)))) \_putbit
 
   # U32 (char) -> IO ()
   # TODO(Darkpi): We may want a char type.
