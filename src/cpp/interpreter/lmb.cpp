@@ -121,24 +121,15 @@ struct lmb_t {
 };
 lmb_idx_t lmb_t::gidx = 0;
 
-template <bool arg_free>
 struct lmb_expr_t : public expr_t {
 
     const expr_t *body;
     const vector<size_t> arg_map;
 
     lmb_expr_t(const expr_t *_body, const vector<size_t> &_arg_map) :
-        expr_t(arg_free ? 1 : 0), body(_body), arg_map(_arg_map) {}
+        expr_t(0), body(_body), arg_map(_arg_map) {}
 
     virtual const lmb_hdr_t& eval(const shadow_env_t &env, vector<lmb_hdr_t>::iterator &cache_ptr) const {
-
-        auto ptr = cache_ptr;
-
-        if (arg_free) {
-            cache_ptr++;
-            if (*ptr)
-                return *ptr;
-        }
 
         env_idx_t ienv;
         ienv.reserve(arg_map.size());
@@ -156,8 +147,6 @@ struct lmb_expr_t : public expr_t {
             ref = make_lmb(body, move(nenv));
         }
 
-        if (arg_free)
-            *ptr = ref;
         return ref;
     }
 };
@@ -173,12 +162,15 @@ struct apply_expr_t : public expr_t {
 
     virtual const lmb_hdr_t& eval(const shadow_env_t &env, vector<lmb_hdr_t>::iterator &cache_ptr) const {
 
-        auto ptr = cache_ptr;
+        auto& eref = *cache_ptr;
 
         if (arg_free) {
-            cache_ptr++;
-            if (*ptr)
-                return *ptr;
+            if (eref != nullptr) {
+                cache_ptr += cache_size;
+                return eref;
+            } else {
+                cache_ptr++;
+            }
         }
 
         auto& lfunc = func->eval(env, cache_ptr);
@@ -190,7 +182,7 @@ struct apply_expr_t : public expr_t {
         }
 
         if (arg_free)
-            *ptr = ref;
+            eref = ref;
         return ref;
     }
 };
@@ -290,17 +282,15 @@ struct parser_t {
 
     parser_t() {}
 
-    const expr_t *parse_single_expr(tokenizer_t &tok, map<string, size_t> &ref, bool &arg_free) {
+    pair<bool, const expr_t*> parse_single_expr(tokenizer_t &tok, map<string, size_t> &ref) {
 
         string token = tok.pop();
         assert(token != "");
 
         if (token == "(") {
-            bool narg_free = true;
-            auto retv = parse_expr(tok, ref, narg_free);
+            auto retv = parse_expr(tok, ref);
             assert(tok.peak() == ")");
             tok.pop();
-            arg_free &= narg_free;
             return retv;
         }
         if (token != "\\") {
@@ -309,46 +299,42 @@ struct parser_t {
             auto &ent = cache_ref[make_tuple(ref[token])];
             if (ent == nullptr)
                 ent = new ref_expr_t(ref[token]);
-            arg_free &= ref[token] != 0;
-            return ent;
+            return make_pair(ref[token] != 0, ent);
         }
 
         // lambda
 
-        bool narg_free = true;
+        bool arg_free = true;
         map<string, size_t> nref;
         string arg = tok.pop();
         assert(arg != "(" && arg != ")" && arg != "\\");
         nref[arg] = 0;
-        const expr_t *body = parse_expr(tok, nref, narg_free);
+        auto retv = parse_expr(tok, nref);
 
         nref.erase(arg);
-        bool sarg_free = true;
         vector<size_t> arg_map(nref.size());
         for (auto pair : nref) {
             if (!ref.count(pair.first))
                 ref.insert(make_pair(pair.first, ref.size()));
             arg_map[pair.second-1] = ref[pair.first];
-            sarg_free &= ref[pair.first] != 0;
+            arg_free &= ref[pair.first] != 0;
         }
 
-        auto &ent = cache_lmb[make_tuple(arg_map, body)];
-        if (ent == nullptr) {
-            if (sarg_free)
-                ent = new lmb_expr_t<true>(body, arg_map);
-            else
-                ent = new lmb_expr_t<false>(body, arg_map);
-        }
-        arg_free &= sarg_free;
-        return ent;
+        auto &ent = cache_lmb[make_tuple(arg_map, retv.second)];
+        if (ent == nullptr)
+            ent = new lmb_expr_t(retv.second, arg_map);
+        return make_pair(arg_free, ent);
     }
 
-    const expr_t *parse_expr(tokenizer_t &tok, map<string, size_t> &ref, bool &arg_free) {
+    pair<bool, const expr_t*> parse_expr(tokenizer_t &tok, map<string, size_t> &ref) {
 
-        const expr_t *func = parse_single_expr(tok, ref, arg_free);
+        bool arg_free = true, narg_free;
+        const expr_t *func = 0x0, *arg;
+        tie(arg_free, func) = parse_single_expr(tok, ref);
         while (tok.peak() != ")") {
             assert(tok.peak() != "");
-            auto arg = parse_single_expr(tok, ref, arg_free);
+            tie(narg_free, arg) = parse_single_expr(tok, ref);
+            arg_free &= narg_free;
             auto &ent = cache_apply[make_tuple(func, arg)];
             if (ent == nullptr) {
                 if (arg_free)
@@ -359,7 +345,7 @@ struct parser_t {
             func = ent;
         }
 
-        return func;
+        return make_pair(arg_free, func);
     }
 
     bool run_once(tokenizer_t &tok, map<string, lmb_hdr_t> &env) {
@@ -367,11 +353,10 @@ struct parser_t {
         if (tok.peak() == "")
             return false;
 
-        bool arg_free = true;
         map<string, size_t> ref;
         ref[""] = 0; // nullptr arg
-        const expr_t *prog = parse_single_expr(tok, ref, arg_free);
-        assert(arg_free);
+        auto retv = parse_single_expr(tok, ref);
+        assert(retv.first);
         ref.erase("");
 
         env_t nenv(ref.size());
@@ -382,9 +367,9 @@ struct parser_t {
             nenv[pair.second-1] = env[pair.first];
         }
 
-        vector<lmb_hdr_t> expr_cache(prog->cache_size);
+        vector<lmb_hdr_t> expr_cache(retv.second->cache_size);
         vector<lmb_hdr_t>::iterator cache_ptr = expr_cache.begin();
-        prog->eval(shadow_env_t{nullptr, nenv}, cache_ptr);
+        retv.second->eval(shadow_env_t{nullptr, nenv}, cache_ptr);
         return true;
     }
 };
@@ -463,7 +448,7 @@ int main(int argc, char *args[]) {
     map<string, lmb_hdr_t> env;
     env["__builtin_p0"] = make_lmb(new builtin_p0_expr_t(), env_t{});
     env["__builtin_p1"] = make_lmb(new builtin_p1_expr_t(), env_t{});
-    env["__builtin_g"] = make_lmb(new lmb_expr_t<false>(new lmb_expr_t<false>(new lmb_expr_t<false>(new builtin_g_expr_t(), {1, 2, 0}), {1, 0}), {0}), env_t{});
+    env["__builtin_g"] = make_lmb(new lmb_expr_t(new lmb_expr_t(new lmb_expr_t(new builtin_g_expr_t(), {1, 2, 0}), {1, 0}), {0}), env_t{});
 
     while (parser.run_once(toks, env));
 }

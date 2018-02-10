@@ -1,8 +1,9 @@
-(__builtin_p1
- (__builtin_p0
-  (__builtin_p0
-   (__builtin_p0
-    (__builtin_p1
-     (__builtin_p1
-      (__builtin_p0
-       (__builtin_p0 __builtin_g))))))))
+((\p p \n \f \x f (n f x)) \inc
+ __builtin_p1
+  (inc (__builtin_p0
+   (inc (__builtin_p0
+    (inc (__builtin_p0
+     (inc (__builtin_p1
+      (inc (__builtin_p1
+       (inc (__builtin_p0
+        (inc (__builtin_p0 (\f \x x))))))))))))))))
