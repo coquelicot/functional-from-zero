@@ -98,8 +98,10 @@ struct env_hash_t {
 };
 
 struct expr_t {
+    const size_t cache_size;
     mutable hash_map_t<env_idx_t, lmb_hdr_t, env_hash_t> cache;
-    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const = 0;
+    expr_t(size_t _cache_size) : cache_size(_cache_size) {}
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env, vector<lmb_hdr_t>::iterator &cache_ptr) const = 0;
     virtual ~expr_t() {};
 };
 
@@ -111,23 +113,32 @@ struct lmb_t {
     const env_t env;
     const lmb_idx_t idx;
     mutable hash_map_t<lmb_idx_t, lmb_hdr_t> cache;
+    mutable vector<lmb_hdr_t> expr_cache;
 
-    lmb_t(const expr_t *_body, const env_t &_env) :
-        body(_body), env(_env), idx(gidx++) {}
-    lmb_t(const expr_t *_body, env_t &&_env) :
-        body(_body), env(move(_env)), idx(gidx++) {}
+    template <typename EU>
+    lmb_t(const expr_t *_body, EU&& _env) :
+        body(_body), env(forward<EU>(_env)), idx(gidx++), expr_cache(body->cache_size) {}
 };
 lmb_idx_t lmb_t::gidx = 0;
 
+template <bool arg_free>
 struct lmb_expr_t : public expr_t {
 
     const expr_t *body;
     const vector<size_t> arg_map;
 
     lmb_expr_t(const expr_t *_body, const vector<size_t> &_arg_map) :
-        body(_body), arg_map(_arg_map) {}
+        expr_t(arg_free ? 1 : 0), body(_body), arg_map(_arg_map) {}
 
-    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env, vector<lmb_hdr_t>::iterator &cache_ptr) const {
+
+        auto ptr = cache_ptr;
+
+        if (arg_free) {
+            cache_ptr++;
+            if (*ptr)
+                return *ptr;
+        }
 
         env_idx_t ienv;
         ienv.reserve(arg_map.size());
@@ -145,24 +156,41 @@ struct lmb_expr_t : public expr_t {
             ref = make_lmb(body, move(nenv));
         }
 
+        if (arg_free)
+            *ptr = ref;
         return ref;
     }
 };
 
+template <bool arg_free>
 struct apply_expr_t : public expr_t {
 
     const expr_t* func;
     const expr_t* arg;
 
     apply_expr_t(const expr_t *_func, const expr_t *_arg) :
-        func(_func), arg(_arg) {}
+        expr_t(_func->cache_size + _arg->cache_size + 1), func(_func), arg(_arg) {}
 
-    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
-        auto& lfunc = func->eval(env);
-        auto& larg = arg->eval(env);
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env, vector<lmb_hdr_t>::iterator &cache_ptr) const {
+
+        auto ptr = cache_ptr;
+
+        if (arg_free) {
+            cache_ptr++;
+            if (*ptr)
+                return *ptr;
+        }
+
+        auto& lfunc = func->eval(env, cache_ptr);
+        auto& larg = arg->eval(env, cache_ptr);
         auto& ref = lfunc->cache[larg->idx];
-        if (ref == nullptr)
-            ref = lfunc->body->eval(shadow_env_t{larg, lfunc->env});
+        if (ref == nullptr) {
+            vector<lmb_hdr_t>::iterator ncache_ptr = lfunc->expr_cache.begin();
+            ref = lfunc->body->eval(shadow_env_t{larg, lfunc->env}, ncache_ptr);
+        }
+
+        if (arg_free)
+            *ptr = ref;
         return ref;
     }
 };
@@ -171,9 +199,9 @@ struct ref_expr_t : public expr_t {
 
     const size_t ref_idx;
 
-    ref_expr_t(size_t _ref_idx) : ref_idx(_ref_idx) {}
+    ref_expr_t(size_t _ref_idx) : expr_t(0), ref_idx(_ref_idx) {}
 
-    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env, vector<lmb_hdr_t>::iterator &cache_ptr) const {
         return env[ref_idx];
     }
 };
@@ -262,15 +290,17 @@ struct parser_t {
 
     parser_t() {}
 
-    const expr_t *parse_single_expr(tokenizer_t &tok, map<string, size_t> &ref) {
+    const expr_t *parse_single_expr(tokenizer_t &tok, map<string, size_t> &ref, bool &arg_free) {
 
         string token = tok.pop();
         assert(token != "");
 
         if (token == "(") {
-            auto retv = parse_expr(tok, ref);
+            bool narg_free = true;
+            auto retv = parse_expr(tok, ref, narg_free);
             assert(tok.peak() == ")");
             tok.pop();
+            arg_free &= narg_free;
             return retv;
         }
         if (token != "\\") {
@@ -279,40 +309,53 @@ struct parser_t {
             auto &ent = cache_ref[make_tuple(ref[token])];
             if (ent == nullptr)
                 ent = new ref_expr_t(ref[token]);
+            arg_free &= ref[token] != 0;
             return ent;
         }
 
         // lambda
 
+        bool narg_free = true;
         map<string, size_t> nref;
         string arg = tok.pop();
         assert(arg != "(" && arg != ")" && arg != "\\");
         nref[arg] = 0;
-        const expr_t *body = parse_expr(tok, nref);
+        const expr_t *body = parse_expr(tok, nref, narg_free);
 
         nref.erase(arg);
+        bool sarg_free = true;
         vector<size_t> arg_map(nref.size());
         for (auto pair : nref) {
             if (!ref.count(pair.first))
                 ref.insert(make_pair(pair.first, ref.size()));
             arg_map[pair.second-1] = ref[pair.first];
+            sarg_free &= ref[pair.first] != 0;
         }
 
         auto &ent = cache_lmb[make_tuple(arg_map, body)];
-        if (ent == nullptr)
-            ent = new lmb_expr_t(body, arg_map);
+        if (ent == nullptr) {
+            if (sarg_free)
+                ent = new lmb_expr_t<true>(body, arg_map);
+            else
+                ent = new lmb_expr_t<false>(body, arg_map);
+        }
+        arg_free &= sarg_free;
         return ent;
     }
 
-    const expr_t *parse_expr(tokenizer_t &tok, map<string, size_t> &ref) {
+    const expr_t *parse_expr(tokenizer_t &tok, map<string, size_t> &ref, bool &arg_free) {
 
-        const expr_t *func = parse_single_expr(tok, ref);
+        const expr_t *func = parse_single_expr(tok, ref, arg_free);
         while (tok.peak() != ")") {
             assert(tok.peak() != "");
-            auto arg = parse_single_expr(tok, ref);
+            auto arg = parse_single_expr(tok, ref, arg_free);
             auto &ent = cache_apply[make_tuple(func, arg)];
-            if (ent == nullptr)
-                ent = new apply_expr_t(func, arg);
+            if (ent == nullptr) {
+                if (arg_free)
+                    ent = new apply_expr_t<true>(func, arg);
+                else
+                    ent = new apply_expr_t<false>(func, arg);
+            }
             func = ent;
         }
 
@@ -324,9 +367,11 @@ struct parser_t {
         if (tok.peak() == "")
             return false;
 
+        bool arg_free = true;
         map<string, size_t> ref;
         ref[""] = 0; // nullptr arg
-        const expr_t *prog = parse_single_expr(tok, ref);
+        const expr_t *prog = parse_single_expr(tok, ref, arg_free);
+        assert(arg_free);
         ref.erase("");
 
         env_t nenv(ref.size());
@@ -337,7 +382,9 @@ struct parser_t {
             nenv[pair.second-1] = env[pair.first];
         }
 
-        prog->eval(shadow_env_t{nullptr, nenv});
+        vector<lmb_hdr_t> expr_cache(prog->cache_size);
+        vector<lmb_hdr_t>::iterator cache_ptr = expr_cache.begin();
+        prog->eval(shadow_env_t{nullptr, nenv}, cache_ptr);
         return true;
     }
 };
@@ -378,21 +425,24 @@ int input() {
 
 
 struct builtin_p0_expr_t : public expr_t {
-    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
+    builtin_p0_expr_t() : expr_t(0) {}
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env, vector<lmb_hdr_t>::iterator &cache_ptr) const {
         output(0);
         return env[0];
     }
 };
 
 struct builtin_p1_expr_t : public expr_t {
-    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
+    builtin_p1_expr_t() : expr_t(0) {}
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env, vector<lmb_hdr_t>::iterator &cache_ptr) const {
         output(1);
         return env[0];
     }
 };
 
 struct builtin_g_expr_t : public expr_t {
-    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
+    builtin_g_expr_t() : expr_t(0) {}
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env, vector<lmb_hdr_t>::iterator &cache_ptr) const {
         int bit = input();
         return bit == EOF ? env[3] : env[bit+1];
     }
@@ -413,7 +463,7 @@ int main(int argc, char *args[]) {
     map<string, lmb_hdr_t> env;
     env["__builtin_p0"] = make_lmb(new builtin_p0_expr_t(), env_t{});
     env["__builtin_p1"] = make_lmb(new builtin_p1_expr_t(), env_t{});
-    env["__builtin_g"] = make_lmb(new lmb_expr_t(new lmb_expr_t(new lmb_expr_t(new builtin_g_expr_t(), {1, 2, 0}), {1, 0}), {0}), env_t{});
+    env["__builtin_g"] = make_lmb(new lmb_expr_t<false>(new lmb_expr_t<false>(new lmb_expr_t<false>(new builtin_g_expr_t(), {1, 2, 0}), {1, 0}), {0}), env_t{});
 
     while (parser.run_once(toks, env));
 }
