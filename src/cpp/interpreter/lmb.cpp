@@ -115,28 +115,30 @@ struct expr_t {
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const = 0;
     virtual ~expr_t() {};
 };
+using expr_hdr_t = shared_ptr<const expr_t>;
 
 struct lmb_t {
 
     static lmb_idx_t gidx;
 
-    const expr_t *body;
+    const expr_hdr_t body;
     const env_t env;
     const lmb_idx_t idx;
     mutable hash_map_t<lmb_idx_t, lmb_hdr_t> cache;
 
     template <typename EU>
-    lmb_t(const expr_t *_body, EU&& _env) :
+    lmb_t(const expr_hdr_t& _body, EU&& _env) :
         body(_body), env(forward<EU>(_env)), idx(gidx++) {}
 };
 lmb_idx_t lmb_t::gidx = 0;
 
+using arg_map_t = vector<size_t>;
 struct lmb_expr_t : public expr_t {
 
-    const expr_t *body;
-    const vector<size_t> arg_map;
+    const expr_hdr_t body;
+    const arg_map_t arg_map;
 
-    lmb_expr_t(const expr_t *_body, const vector<size_t> &_arg_map) :
+    lmb_expr_t(const expr_hdr_t &_body, const arg_map_t &_arg_map) :
         body(_body), arg_map(_arg_map) {}
 
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
@@ -163,10 +165,10 @@ struct lmb_expr_t : public expr_t {
 
 struct apply_expr_t : public expr_t {
 
-    const expr_t* func;
-    const expr_t* arg;
+    const expr_hdr_t func;
+    const expr_hdr_t arg;
 
-    apply_expr_t(const expr_t *_func, const expr_t *_arg) :
+    apply_expr_t(const expr_hdr_t &_func, const expr_hdr_t &_arg) :
         func(_func), arg(_arg) {}
 
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
@@ -268,13 +270,13 @@ struct tokenizer_t {
 
 struct parser_t {
 
-    map<tuple<size_t>, const expr_t*> cache_ref;
-    map<tuple<vector<size_t>, const expr_t*>, const expr_t*> cache_lmb;
-    map<tuple<const expr_t*, const expr_t*>, const expr_t*> cache_apply;
+    map<tuple<size_t>, expr_hdr_t> cache_ref;
+    map<tuple<arg_map_t, expr_hdr_t>, expr_hdr_t> cache_lmb;
+    map<tuple<expr_hdr_t, expr_hdr_t>, expr_hdr_t> cache_apply;
 
     parser_t() {}
 
-    const expr_t *parse_single_expr(tokenizer_t &tok, map<string, size_t> &ref) {
+    expr_hdr_t parse_single_expr(tokenizer_t &tok, map<string, size_t> &ref) {
 
         string token = tok.pop();
         assert(token != "");
@@ -290,7 +292,7 @@ struct parser_t {
                 ref.insert(make_pair(token, ref.size()));
             auto &ent = cache_ref[make_tuple(ref[token])];
             if (ent == nullptr)
-                ent = new ref_expr_t(ref[token]);
+                ent = make_shared<ref_expr_t>(ref[token]);
             return ent;
         }
 
@@ -300,7 +302,7 @@ struct parser_t {
         string arg = tok.pop();
         assert(arg != "(" && arg != ")" && arg != "\\");
         nref[arg] = 0;
-        const expr_t *body = parse_expr(tok, nref);
+        auto body = parse_expr(tok, nref);
 
         nref.erase(arg);
         vector<size_t> arg_map(nref.size());
@@ -312,19 +314,19 @@ struct parser_t {
 
         auto &ent = cache_lmb[make_tuple(arg_map, body)];
         if (ent == nullptr)
-            ent = new lmb_expr_t(body, arg_map);
+            ent = make_shared<lmb_expr_t>(body, arg_map);
         return ent;
     }
 
-    const expr_t *parse_expr(tokenizer_t &tok, map<string, size_t> &ref) {
+    expr_hdr_t parse_expr(tokenizer_t &tok, map<string, size_t> &ref) {
 
-        const expr_t *func = parse_single_expr(tok, ref);
+        auto func = parse_single_expr(tok, ref);
         while (tok.peak() != ")") {
             assert(tok.peak() != "");
             auto arg = parse_single_expr(tok, ref);
             auto &ent = cache_apply[make_tuple(func, arg)];
             if (ent == nullptr)
-                ent = new apply_expr_t(func, arg);
+                ent = make_shared<apply_expr_t>(func, arg);
             func = ent;
         }
 
@@ -338,7 +340,7 @@ struct parser_t {
 
         map<string, size_t> ref;
         ref[""] = 0; // nullptr arg
-        const expr_t *prog = parse_single_expr(tok, ref);
+        auto prog = parse_single_expr(tok, ref);
         ref.erase("");
 
         env_t nenv(ref.size());
@@ -423,9 +425,9 @@ int main(int argc, char *args[]) {
     parser_t parser;
 
     map<string, lmb_hdr_t> env;
-    env["__builtin_p0"] = make_lmb(new builtin_p0_expr_t(), env_t{});
-    env["__builtin_p1"] = make_lmb(new builtin_p1_expr_t(), env_t{});
-    env["__builtin_g"] = make_lmb(new lmb_expr_t(new lmb_expr_t(new lmb_expr_t(new builtin_g_expr_t(), {1, 2, 0}), {1, 0}), {0}), env_t{});
+    env["__builtin_p0"] = make_lmb(make_shared<builtin_p0_expr_t>(), env_t{});
+    env["__builtin_p1"] = make_lmb(make_shared<builtin_p1_expr_t>(), env_t{});
+    env["__builtin_g"] = make_lmb(make_shared<lmb_expr_t>(make_shared<lmb_expr_t>(make_shared<lmb_expr_t>(make_shared<builtin_g_expr_t>(), arg_map_t{1, 2, 0}), arg_map_t{1, 0}), arg_map_t{0}), env_t{});
 
     while (parser.run_once(toks, env));
 }
