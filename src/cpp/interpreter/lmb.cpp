@@ -135,11 +135,20 @@ lmb_idx_t lmb_t::gidx = 0;
 using arg_map_t = vector<size_t>;
 struct lmb_expr_t : public expr_t {
 
+    static hash_map_t<pair<expr_hdr_t, arg_map_t>, expr_hdr_t> expr_cache;
+
     const expr_hdr_t body;
     const arg_map_t arg_map;
 
     lmb_expr_t(const expr_hdr_t &_body, const arg_map_t &_arg_map) :
         body(_body), arg_map(_arg_map) {}
+
+    static expr_hdr_t create(const expr_hdr_t &body, const arg_map_t &arg_map) {
+        auto& ref = expr_cache[make_pair(body, arg_map)];
+        if (ref == nullptr)
+            ref = make_shared<lmb_expr_t>(body, arg_map);
+        return ref;
+    }
 
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
 
@@ -162,8 +171,11 @@ struct lmb_expr_t : public expr_t {
         return ref;
     }
 };
+hash_map_t<pair<expr_hdr_t, arg_map_t>, expr_hdr_t> lmb_expr_t::expr_cache;
 
 struct apply_expr_t : public expr_t {
+
+    static hash_map_t<pair<expr_hdr_t, expr_hdr_t>, expr_hdr_t> expr_cache;
 
     const expr_hdr_t func;
     const expr_hdr_t arg;
@@ -179,9 +191,19 @@ struct apply_expr_t : public expr_t {
             ref = lfunc->body->eval(shadow_env_t{larg, lfunc->env});
         return ref;
     }
+
+    static expr_hdr_t create(const expr_hdr_t &func, const expr_hdr_t &arg) {
+        auto& ref = expr_cache[make_pair(func, arg)];
+        if (ref == nullptr)
+            ref = make_shared<apply_expr_t>(func, arg);
+        return ref;
+    }
 };
+hash_map_t<pair<expr_hdr_t, expr_hdr_t>, expr_hdr_t> apply_expr_t::expr_cache;
 
 struct ref_expr_t : public expr_t {
+
+    static hash_map_t<size_t, expr_hdr_t> expr_cache;
 
     const size_t ref_idx;
 
@@ -190,7 +212,15 @@ struct ref_expr_t : public expr_t {
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         return env[ref_idx];
     }
+
+    static expr_hdr_t create(size_t ref_idx) {
+        auto& ref = expr_cache[ref_idx];
+        if (ref == nullptr)
+            ref = make_shared<ref_expr_t>(ref_idx);
+        return ref;
+    }
 };
+hash_map_t<size_t, expr_hdr_t> ref_expr_t::expr_cache;
 
 // parser {{{
 
@@ -270,10 +300,6 @@ struct tokenizer_t {
 
 struct parser_t {
 
-    map<tuple<size_t>, expr_hdr_t> cache_ref;
-    map<tuple<arg_map_t, expr_hdr_t>, expr_hdr_t> cache_lmb;
-    map<tuple<expr_hdr_t, expr_hdr_t>, expr_hdr_t> cache_apply;
-
     parser_t() {}
 
     expr_hdr_t parse_single_expr(tokenizer_t &tok, map<string, size_t> &ref) {
@@ -290,10 +316,7 @@ struct parser_t {
         if (token != "\\") {
             if (!ref.count(token))
                 ref.insert(make_pair(token, ref.size()));
-            auto &ent = cache_ref[make_tuple(ref[token])];
-            if (ent == nullptr)
-                ent = make_shared<ref_expr_t>(ref[token]);
-            return ent;
+            return ref_expr_t::create(ref[token]);
         }
 
         // lambda
@@ -312,22 +335,15 @@ struct parser_t {
             arg_map[pair.second-1] = ref[pair.first];
         }
 
-        auto &ent = cache_lmb[make_tuple(arg_map, body)];
-        if (ent == nullptr)
-            ent = make_shared<lmb_expr_t>(body, arg_map);
-        return ent;
+        return lmb_expr_t::create(body, arg_map);
     }
 
     expr_hdr_t parse_expr(tokenizer_t &tok, map<string, size_t> &ref) {
 
         auto func = parse_single_expr(tok, ref);
-        while (tok.peak() != ")") {
-            assert(tok.peak() != "");
+        while (tok.peak() != ")" && tok.peak() != "") {
             auto arg = parse_single_expr(tok, ref);
-            auto &ent = cache_apply[make_tuple(func, arg)];
-            if (ent == nullptr)
-                ent = make_shared<apply_expr_t>(func, arg);
-            func = ent;
+            func = apply_expr_t::create(func, arg);
         }
 
         return func;
