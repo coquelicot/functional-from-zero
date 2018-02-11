@@ -37,7 +37,7 @@ struct hash_map_t {
 
         // insert
         ++size;
-        table[idx] = move(make_pair(hash_val, make_unique<pair<K, V>>(forward<KU>(k), V())));
+        table[idx] = move(make_pair(hash_val, unique_ptr<pair<K, V>>(new pair<K, V>(forward<KU>(k), V()))));
         V& retv = table[idx].second->second;
 
         // extend if load >= 2/3
@@ -64,6 +64,30 @@ struct hash_map_t {
     }
 };
 
+namespace std {
+
+    template <typename U, typename V>
+    struct hash<pair<U, V>> {
+        hash<U> uhash;
+        hash<V> vhash;
+        size_t operator()(const pair<U, V> &p) const {
+            size_t tmp = uhash(p.first);
+            return tmp * 17 + vhash(p.second);
+        }
+    };
+
+    template <typename V>
+    struct hash<vector<V>> {
+        hash<V> vhash;
+        size_t operator()(const vector<V> &vs) const {
+            size_t retv = 0;
+            for (auto &v : vs)
+                retv = retv * 17 + vhash(v);
+            return retv;
+        }
+    };
+}
+
 // }}}
 
 struct lmb_t;
@@ -86,19 +110,8 @@ struct shadow_env_t {
     }
 };
 
-// TODO: better hash
-struct env_hash_t {
-    size_t operator()(const env_idx_t &ienv) const {
-        auto hasher = hash<lmb_idx_t>();
-        size_t retv = 0;
-        for (auto &v : ienv)
-            retv = retv * 17 + hasher(v);
-        return retv;
-    }
-};
-
 struct expr_t {
-    mutable hash_map_t<env_idx_t, lmb_hdr_t, env_hash_t> cache;
+    mutable hash_map_t<env_idx_t, lmb_hdr_t> cache;
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const = 0;
     virtual ~expr_t() {};
 };
@@ -112,10 +125,9 @@ struct lmb_t {
     const lmb_idx_t idx;
     mutable hash_map_t<lmb_idx_t, lmb_hdr_t> cache;
 
-    lmb_t(const expr_t *_body, const env_t &_env) :
-        body(_body), env(_env), idx(gidx++) {}
-    lmb_t(const expr_t *_body, env_t &&_env) :
-        body(_body), env(move(_env)), idx(gidx++) {}
+    template <typename EU>
+    lmb_t(const expr_t *_body, EU&& _env) :
+        body(_body), env(forward<EU>(_env)), idx(gidx++) {}
 };
 lmb_idx_t lmb_t::gidx = 0;
 
