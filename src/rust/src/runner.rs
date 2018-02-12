@@ -92,7 +92,7 @@ impl<'a> Hash for BaseEnvironment<'a> {
     where
         H: Hasher,
     {
-        for val in self.values.iter() {
+        for val in &self.values {
             let ptr = Rc::into_raw(Rc::clone(val));
             ptr.hash(state);
             let _ = unsafe { Rc::from_raw(ptr) };
@@ -106,7 +106,7 @@ impl<'a> PartialEq for BaseEnvironment<'a> {
             return false;
         }
         for (i, val) in self.values.iter().enumerate() {
-            if !Rc::ptr_eq(&val, &other.values[i]) {
+            if !Rc::ptr_eq(val, &other.values[i]) {
                 return false;
             }
         }
@@ -339,27 +339,27 @@ fn run_impl<'a>(
     }
 }
 
-pub fn run<'a>(expression: &'a Expression, free_vars: Vec<&'a Token<'a>>) -> Result<(), Error<'a>> {
+pub fn run<'a>(expression: &'a Expression, free_vars: &[&'a Token<'a>]) -> Result<(), Error<'a>> {
     let mut undefined_vars: Vec<&Token> = vec![];
     let mut environment = BaseEnvironment::new();
-    let mut cache = RunCache::new();
-    for name in free_vars.iter() {
+    let cache = RunCache::new();
+    for name in free_vars {
         match name.token_raw {
             "__builtin_p0" => environment.push(Rc::from(Lambda::new(
                 Box::from(BitOutputLambda::new(0)),
-                &mut cache,
+                &cache,
             ))),
             "__builtin_p1" => environment.push(Rc::from(Lambda::new(
                 Box::from(BitOutputLambda::new(1)),
-                &mut cache,
+                &cache,
             ))),
             "__builtin_g" => environment.push(Rc::from(Lambda::new(
                 Box::from(BitInputLambda::new()),
-                &mut cache,
+                &cache,
             ))),
             "__builtin_debug" => environment.push(Rc::from(Lambda::new(
                 Box::from(DebugLambda::new()),
-                &mut cache,
+                &cache,
             ))),
             _ => undefined_vars.push(name),
         }
@@ -367,6 +367,6 @@ pub fn run<'a>(expression: &'a Expression, free_vars: Vec<&'a Token<'a>>) -> Res
     if !undefined_vars.is_empty() {
         return Err(Error::UndefinedVariable(undefined_vars));
     }
-    run_impl(expression, &environment, &mut cache);
+    run_impl(expression, &environment, &cache);
     Ok(())
 }
