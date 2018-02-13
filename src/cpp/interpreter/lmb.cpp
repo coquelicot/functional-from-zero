@@ -409,8 +409,6 @@ void output(int bit) {
 
 int input() {
 
-    // FIXME: how about eof?
-
     static int pos = -1;
     static int val = 0;
 
