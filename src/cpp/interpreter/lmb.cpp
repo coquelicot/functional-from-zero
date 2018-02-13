@@ -66,40 +66,41 @@ struct hash_map_t {
 
 namespace std {
 
+    constexpr static size_t _combine(size_t a, size_t b) {
+        return a * 17 + b;
+    }
+
     template <typename U, typename V>
     struct hash<pair<U, V>> {
+        hash<U> uhash;
+        hash<V> vhash;
         size_t operator()(const pair<U, V> &p) const {
-            hash<U> uhash;
-            hash<V> vhash;
-            return uhash(p.first) * 17 + vhash(p.second);
+            return _combine(uhash(p.first), vhash(p.second));
         }
     };
 
     template <typename T, size_t idx=tuple_size<T>::value>
     struct _tuple_hash {
-        static size_t calc(const T& t) {
-            hash<typename tuple_element<idx-1, T>::type> vhash;
-            return _tuple_hash<T, idx-1>::calc(t) * 17 + vhash(get<idx-1>(t));
+        _tuple_hash<T, idx-1> uhash;
+        hash<typename tuple_element<idx-1, T>::type> vhash;
+        size_t operator()(const T& t) const {
+            return _combine(uhash(t), vhash(get<idx-1>(t)));
         }
     };
     template <typename T>
     struct _tuple_hash<T, 0> {
-        static size_t calc(const T& t) { return 0; }
+        size_t operator()(const T& t) const { return 0; }
     };
     template <typename... Args>
-    struct hash<tuple<Args...>> {
-        size_t operator()(const tuple<Args...> &t) const {
-            return _tuple_hash<tuple<Args...>>::calc(t);
-        }
-    };
+    struct hash<tuple<Args...>> : _tuple_hash<tuple<Args...>> {};
 
     template <typename V>
     struct hash<vector<V>> {
+        hash<V> vhash;
         size_t operator()(const vector<V> &vs) const {
-            hash<V> vhash;
             size_t retv = 0;
             for (auto &v : vs)
-                retv = retv * 17 + vhash(v);
+                retv = _combine(retv, vhash(v));
             return retv;
         }
     };
@@ -125,7 +126,7 @@ struct shadow_env_t {
 };
 
 struct expr_t {
-    mutable hash_map_t<env_idx_t, lmb_hdr_t> cache;
+    mutable hash_map_t<env_idx_t, lmb_hdr_t> lmb_cache;
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const = 0;
     virtual ~expr_t() {};
 };
@@ -154,7 +155,7 @@ struct lmb_t {
     const expr_hdr_t body;
     const env_t env;
     const lmb_idx_t idx;
-    mutable hash_map_t<lmb_idx_t, lmb_hdr_t> cache;
+    mutable hash_map_t<lmb_idx_t, lmb_hdr_t> eval_cache;
 
     template <typename EU>
     lmb_t(const expr_hdr_t& _body, EU&& _env) :
@@ -187,7 +188,7 @@ struct lmb_expr_t : public cached_expr_t<lmb_expr_t, expr_hdr_t, arg_map_t> {
         for (auto idx : arg_map)
             ienv.emplace_back(env[idx]->idx);
 
-        auto &ref = body->cache[move(ienv)];
+        auto &ref = body->lmb_cache[move(ienv)];
         if (ref == nullptr) {
 
             env_t nenv;
@@ -213,7 +214,7 @@ struct apply_expr_t : public cached_expr_t<apply_expr_t, expr_hdr_t, expr_hdr_t>
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         auto& lfunc = func->eval(env);
         auto& larg = arg->eval(env);
-        auto& ref = lfunc->cache[larg->idx];
+        auto& ref = lfunc->eval_cache[larg->idx];
         if (ref == nullptr)
             ref = lfunc->body->eval(shadow_env_t{larg, lfunc->env});
         return ref;
