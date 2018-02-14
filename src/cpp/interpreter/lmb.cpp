@@ -113,6 +113,7 @@ namespace std {
 struct lmb_t;
 using lmb_idx_t = unsigned long;
 using lmb_hdr_t = shared_ptr<const lmb_t>;
+using arg_map_t = vector<size_t>;
 
 using env_t = vector<lmb_hdr_t>;
 using env_idx_t = vector<lmb_idx_t>;
@@ -125,12 +126,19 @@ struct shadow_env_t {
     }
 };
 
+struct expr_t;
+using expr_hdr_t = shared_ptr<const expr_t>;
 struct expr_t {
     mutable hash_map_t<env_idx_t, lmb_hdr_t> lmb_cache;
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const = 0;
+    virtual const expr_hdr_t const_fold(size_t idx, const lmb_hdr_t &val) const {
+        assert(false);
+    }
+    virtual const expr_hdr_t remap_idx(const arg_map_t &arg_map) const {
+        assert(false);
+    }
     virtual ~expr_t() {};
 };
-using expr_hdr_t = shared_ptr<const expr_t>;
 
 template <typename T, typename... Args>
 struct cached_expr_t : public expr_t {
@@ -155,11 +163,18 @@ struct lmb_t {
     const expr_hdr_t body;
     const env_t env;
     const lmb_idx_t idx;
-    mutable hash_map_t<lmb_idx_t, lmb_hdr_t> eval_cache;
+    mutable hash_map_t<lmb_idx_t, lmb_hdr_t> exec_cache;
 
     template <typename EU>
     lmb_t(const expr_hdr_t& _body, EU&& _env) :
         body(_body), env(forward<EU>(_env)), idx(gidx++) {}
+
+    const lmb_hdr_t& exec(const lmb_hdr_t &arg) const {
+        auto& ref = exec_cache[arg->idx];
+        if (ref == nullptr)
+            ref = body->eval(shadow_env_t{arg, env});
+        return ref;
+    }
 };
 lmb_idx_t lmb_t::gidx = 0;
 
@@ -172,7 +187,26 @@ lmb_hdr_t make_lmb(Args&&... args) {
 
 // X_expr_t {{{
 
-using arg_map_t = vector<size_t>;
+struct const_expr_t : public cached_expr_t<const_expr_t, lmb_hdr_t> {
+
+    const lmb_hdr_t val;
+
+    const_expr_t(const lmb_hdr_t &_val) :
+        val(_val) {}
+
+    virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
+        return val;
+    }
+
+    virtual const expr_hdr_t const_fold(size_t idx, const lmb_hdr_t &_val) const {
+        return const_expr_t::create(val);
+    }
+
+    virtual const expr_hdr_t remap_idx(const arg_map_t &arg_map) const {
+        return const_expr_t::create(val);
+    }
+};
+
 struct lmb_expr_t : public cached_expr_t<lmb_expr_t, expr_hdr_t, arg_map_t> {
 
     const expr_hdr_t body;
@@ -201,6 +235,41 @@ struct lmb_expr_t : public cached_expr_t<lmb_expr_t, expr_hdr_t, arg_map_t> {
 
         return ref;
     }
+
+    virtual const expr_hdr_t const_fold(size_t idx, const lmb_hdr_t &val) const {
+
+        ssize_t skip = -1;
+        arg_map_t narg_map;
+        narg_map.reserve(arg_map.size());
+
+        for (size_t i = 0; i < arg_map.size(); i++)
+            if (arg_map[i] == idx) {
+                assert(skip == -1);
+                skip = i;
+            } else {
+                narg_map.push_back(arg_map[i] - (idx && arg_map[i] > idx ? 1 : 0));
+            }
+
+        auto nbody = skip == -1 ? body : body->const_fold(skip + 1, val);
+        if (narg_map.size() > 0)
+            return lmb_expr_t::create(nbody, narg_map);
+        else {
+            //cerr << "const lmb" << endl;
+            return const_expr_t::create(make_lmb(nbody, env_t{}));
+        }
+    }
+
+    virtual const expr_hdr_t remap_idx(const arg_map_t &ref_arg_map) const {
+
+        arg_map_t narg_map;
+        narg_map.reserve(arg_map.size());
+        for (auto idx : arg_map) {
+            assert(idx != 0);
+            narg_map.push_back(ref_arg_map[idx - 1]);
+        }
+
+        return lmb_expr_t::create(body, narg_map);
+    }
 };
 
 struct apply_expr_t : public cached_expr_t<apply_expr_t, expr_hdr_t, expr_hdr_t> {
@@ -214,10 +283,33 @@ struct apply_expr_t : public cached_expr_t<apply_expr_t, expr_hdr_t, expr_hdr_t>
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         auto& lfunc = func->eval(env);
         auto& larg = arg->eval(env);
-        auto& ref = lfunc->eval_cache[larg->idx];
-        if (ref == nullptr)
-            ref = lfunc->body->eval(shadow_env_t{larg, lfunc->env});
-        return ref;
+        return lfunc->exec(larg);
+    }
+
+    virtual const expr_hdr_t const_fold(size_t idx, const lmb_hdr_t &val) const {
+        return _const_fold(func->const_fold(idx, val), arg->const_fold(idx, val));
+    }
+
+    static expr_hdr_t _const_fold(const expr_hdr_t &func, const expr_hdr_t &arg) {
+        try {
+            const const_expr_t &carg = dynamic_cast<const const_expr_t&>(*arg);
+            try {
+                const const_expr_t &cfunc = dynamic_cast<const const_expr_t&>(*func);
+                //cerr << "const apply" << endl;
+                return const_expr_t::create(cfunc.val->exec(carg.val));
+            } catch (bad_cast) {
+                try {
+                    const lmb_expr_t &lfunc = dynamic_cast<const lmb_expr_t&>(*func);
+                    //cerr << "inline lmb" << endl;
+                    return lfunc.body->const_fold(0, carg.val)->remap_idx(lfunc.arg_map);
+                } catch (bad_cast) {}
+            }
+        } catch (bad_cast) {}
+        return apply_expr_t::create(func, arg);
+    }
+
+    virtual const expr_hdr_t remap_idx(const arg_map_t &arg_map) const {
+        return apply_expr_t::create(func->remap_idx(arg_map), arg->remap_idx(arg_map));
     }
 };
 
@@ -229,6 +321,19 @@ struct ref_expr_t : public cached_expr_t<ref_expr_t, size_t> {
 
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         return env[ref_idx];
+    }
+
+    virtual const expr_hdr_t const_fold(size_t idx, const lmb_hdr_t &val) const {
+        if (idx == ref_idx) {
+            //cerr << "const ref" << endl;
+            return const_expr_t::create(val);
+        } else
+            return ref_expr_t::create(ref_idx - (idx && ref_idx > idx ? 1 : 0));
+    }
+
+    virtual const expr_hdr_t remap_idx(const arg_map_t &arg_map) const {
+        assert(ref_idx != 0);
+        return ref_expr_t::create(arg_map[ref_idx - 1]);
     }
 };
 
@@ -344,7 +449,7 @@ struct parser_t {
         auto body = parse_expr(tok, nref);
 
         nref.erase(arg);
-        vector<size_t> arg_map(nref.size());
+        arg_map_t arg_map(nref.size());
         for (auto pair : nref) {
             if (!ref.count(pair.first))
                 ref.insert(make_pair(pair.first, ref.size()));
@@ -374,7 +479,7 @@ struct parser_t {
         auto prog = parse_single_expr(tok, ref);
 
         lmb_hdr_t arg = nullptr;
-        env_t nenv(ref.size()-1);
+        env_t nenv(ref.empty() ? 0 : ref.size()-1);
         for (auto pair : ref) {
             if (!env.count(pair.first)) {
                 std::cerr << "Unknown ident: " << pair.first << std::endl;
@@ -386,7 +491,15 @@ struct parser_t {
             }
         }
 
+#define CONST_FOLD 1
+#ifdef CONST_FOLD
+        for (size_t i = 0; i < nenv.size(); i++)
+            prog = prog->const_fold(1, nenv[i]);
+        prog = prog->const_fold(0, arg);
+        prog->eval(shadow_env_t{nullptr, env_t{}});
+#else
         prog->eval(shadow_env_t{arg, nenv});
+#endif
         return true;
     }
 };
