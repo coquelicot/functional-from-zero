@@ -192,7 +192,10 @@ struct const_expr_t : public cached_expr_t<const_expr_t, lmb_hdr_t> {
     const lmb_hdr_t val;
 
     const_expr_t(const lmb_hdr_t &_val) :
-        val(_val) {}
+        val(_val) {
+        //cerr << val.get() << ": " << val->env.size() << endl;
+        assert(val->env.empty());
+    }
 
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         return val;
@@ -291,20 +294,17 @@ struct apply_expr_t : public cached_expr_t<apply_expr_t, expr_hdr_t, expr_hdr_t>
     }
 
     static expr_hdr_t _const_fold(const expr_hdr_t &func, const expr_hdr_t &arg) {
-        try {
-            const const_expr_t &carg = dynamic_cast<const const_expr_t&>(*arg);
-            try {
-                const const_expr_t &cfunc = dynamic_cast<const const_expr_t&>(*func);
+        if (const const_expr_t *carg = dynamic_cast<const const_expr_t*>(arg.get())) {
+            if (const const_expr_t *cfunc = dynamic_cast<const const_expr_t*>(func.get())) {
                 //cerr << "const apply" << endl;
-                return const_expr_t::create(cfunc.val->exec(carg.val));
-            } catch (bad_cast) {
-                try {
-                    const lmb_expr_t &lfunc = dynamic_cast<const lmb_expr_t&>(*func);
-                    //cerr << "inline lmb" << endl;
-                    return lfunc.body->const_fold(0, carg.val)->remap_idx(lfunc.arg_map);
-                } catch (bad_cast) {}
+                //cerr << cfunc->val.get() << " " << carg->val.get() << endl;
+                return cfunc->val->body->const_fold(0, carg->val);
+                return const_expr_t::create(cfunc->val->exec(carg->val));
+            } else if (const lmb_expr_t *lfunc = dynamic_cast<const lmb_expr_t*>(func.get())) {
+                //cerr << "inline lmb" << endl;
+                return lfunc->body->const_fold(0, carg->val)->remap_idx(lfunc->arg_map);
             }
-        } catch (bad_cast) {}
+        }
         return apply_expr_t::create(func, arg);
     }
 
@@ -476,30 +476,23 @@ struct parser_t {
             return false;
 
         map<string, size_t> ref;
+        ref[""] = 0;
         auto prog = parse_single_expr(tok, ref);
+        ref.erase("");
 
-        lmb_hdr_t arg = nullptr;
-        env_t nenv(ref.empty() ? 0 : ref.size()-1);
+        env_t nenv(ref.size());
         for (auto pair : ref) {
             if (!env.count(pair.first)) {
                 std::cerr << "Unknown ident: " << pair.first << std::endl;
                 return false;
-            } else if (pair.second > 0) {
-                nenv[pair.second-1] = env[pair.first];
             } else {
-                arg = env[pair.first];
+                assert(pair.second > 0);
+                nenv[pair.second-1] = env[pair.first];
             }
         }
 
-#define CONST_FOLD 1
-#ifdef CONST_FOLD
-        for (size_t i = 0; i < nenv.size(); i++)
-            prog = prog->const_fold(1, nenv[i]);
-        prog = prog->const_fold(0, arg);
-        prog->eval(shadow_env_t{nullptr, env_t{}});
-#else
-        prog->eval(shadow_env_t{arg, nenv});
-#endif
+        prog = prog->const_fold(0, nullptr);
+        prog->eval(shadow_env_t{nullptr, nenv});
         return true;
     }
 };
