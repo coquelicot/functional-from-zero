@@ -6,7 +6,7 @@ use std::io::Read;
 use functional_from_zero::interpreter;
 
 fn read_code() -> String {
-    let filename = env::args().skip(1).next().expect("No filename given.");
+    let filename = env::args().nth(1).expect("No filename given.");
 
     let mut code = String::new();
     fs::File::open(filename)
@@ -20,7 +20,7 @@ fn read_code_without_comment() -> String {
     let mut code = String::new();
     for line in read_code().lines() {
         if !line.trim().starts_with('#') {
-            code.push_str(&line);
+            code.push_str(line);
         }
         code.push_str("\n")
     }
