@@ -145,11 +145,11 @@ fn transform_impl<'a>(
     }
 }
 
-pub fn transform<'a>(root: &'a Node) -> (Rc<Expression>, Vec<&'a Token<'a>>) {
+pub fn transform<'a>(root: &'a Node<'_>) -> (Rc<Expression>, Vec<&'a Token<'a>>) {
     let mut free_vars = VariableNameMap::new();
     let mut expression_cache = ExpressionCache::new();
     let expression = transform_impl(root, &mut free_vars, &mut expression_cache);
-    let mut free_vars: Vec<(usize, &Token)> = free_vars.map.into_iter().map(|(_, v)| v).collect();
+    let mut free_vars: Vec<(usize, &Token<'_>)> = free_vars.map.into_iter().map(|(_, v)| v).collect();
     free_vars.sort_by_key(|&(name, _)| name);
     (
         expression,

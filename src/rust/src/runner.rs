@@ -20,13 +20,13 @@ trait LambdaValue<'a>: fmt::Debug {
 
 #[derive(Debug)]
 pub struct Lambda<'a> {
-    value: Box<LambdaValue<'a> + 'a>,
+    value: Box<dyn LambdaValue<'a> + 'a>,
     id: usize,
     apply_cache: RefCell<HashMap<usize, RcLambda<'a>>>,
 }
 
 impl<'a> Lambda<'a> {
-    fn new(value: Box<LambdaValue<'a> + 'a>, cache: &RunCache) -> Lambda<'a> {
+    fn new(value: Box<dyn LambdaValue<'a> + 'a>, cache: &RunCache<'_>) -> Lambda<'a> {
         Lambda {
             value,
             id: cache.new_id(),
@@ -149,7 +149,7 @@ impl DebugLambda {
 }
 
 impl<'a> LambdaValue<'a> for DebugLambda {
-    fn apply(&self, arg: RcLambda<'a>, _: &RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: RcLambda<'a>, _: &RunCache<'_>) -> LambdaReturn<'a> {
         println!("[debug] arg = {:p}", arg.as_ref());
         arg
     }
@@ -167,7 +167,7 @@ impl BitOutputLambda {
 }
 
 impl<'a> LambdaValue<'a> for BitOutputLambda {
-    fn apply(&self, arg: RcLambda<'a>, _: &RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: RcLambda<'a>, _: &RunCache<'_>) -> LambdaReturn<'a> {
         BIT_STDOUT.lock().unwrap().write(self.bit);
         arg
     }
@@ -183,7 +183,7 @@ impl BitInputLambda {
 }
 
 impl<'a> LambdaValue<'a> for BitInputLambda {
-    fn apply(&self, arg: RcLambda<'a>, cache: &RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: RcLambda<'a>, cache: &RunCache<'_>) -> LambdaReturn<'a> {
         Rc::from(Lambda::new(Box::from(BitInputLambda1 { arg }), cache))
     }
 }
@@ -194,7 +194,7 @@ struct BitInputLambda1<'a> {
 }
 
 impl<'a> LambdaValue<'a> for BitInputLambda1<'a> {
-    fn apply(&self, arg: RcLambda<'a>, cache: &RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: RcLambda<'a>, cache: &RunCache<'_>) -> LambdaReturn<'a> {
         Rc::from(Lambda::new(
             Box::from(BitInputLambda2 {
                 args: [Rc::clone(&self.arg), Rc::clone(&arg)],
@@ -210,7 +210,7 @@ struct BitInputLambda2<'a> {
 }
 
 impl<'a> LambdaValue<'a> for BitInputLambda2<'a> {
-    fn apply(&self, arg: RcLambda<'a>, cache: &RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, arg: RcLambda<'a>, cache: &RunCache<'_>) -> LambdaReturn<'a> {
         Rc::from(Lambda::new(
             Box::from(BitInputLambda3 {
                 args: [
@@ -230,10 +230,10 @@ struct BitInputLambda3<'a> {
 }
 
 impl<'a> LambdaValue<'a> for BitInputLambda3<'a> {
-    fn apply(&self, _arg: RcLambda<'a>, _: &RunCache) -> LambdaReturn<'a> {
+    fn apply(&self, _arg: RcLambda<'a>, _: &RunCache<'_>) -> LambdaReturn<'a> {
         let bit = BIT_STDIN.lock().unwrap().read();
         let arg_idx = match bit {
-            Some(b @ 0...1) => b as usize,
+            Some(b @ 0..=1) => b as usize,
             None => 2,
             _ => unreachable!(),
         };
@@ -257,7 +257,7 @@ impl<'a> error::Error for Error<'a> {
 }
 
 impl<'a> fmt::Display for Error<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Error::UndefinedVariable(ref vars) => {
                 for var in vars {
@@ -290,7 +290,7 @@ impl<'a> RunCache<'a> {
 
 fn run_impl<'a>(
     expression: &'a Expression,
-    environment: &Environment<'a>,
+    environment: &dyn Environment<'a>,
     cache: &RunCache<'a>,
 ) -> LambdaReturn<'a> {
     match expression.value {
@@ -340,7 +340,7 @@ fn run_impl<'a>(
 }
 
 pub fn run<'a>(expression: &'a Expression, free_vars: &[&'a Token<'a>]) -> Result<(), Error<'a>> {
-    let mut undefined_vars: Vec<&Token> = vec![];
+    let mut undefined_vars: Vec<&Token<'_>> = vec![];
     let mut environment = BaseEnvironment::new();
     let cache = RunCache::new();
     for name in free_vars {

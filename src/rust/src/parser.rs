@@ -43,7 +43,7 @@ impl<'a> error::Error for Error<'a> {
 const EOF_TOKEN_MISSING: &str = "EOF Token missing QQ";
 
 impl<'a> fmt::Display for Error<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "At {}: ", self.token)?;
         match self.error_type {
             ErrorType::EOFReached => write!(f, "Unexpected EOF found when parsing expression."),
@@ -104,7 +104,7 @@ where
     Ok(expression)
 }
 
-pub fn parse<'a>(tokens: &'a [Token]) -> Result<Node<'a>, Error<'a>> {
+pub fn parse<'a>(tokens: &'a [Token<'_>]) -> Result<Node<'a>, Error<'a>> {
     let mut token_iter = tokens
         .iter()
         .filter(|x| match x.token_type {

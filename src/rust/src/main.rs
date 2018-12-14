@@ -1,4 +1,4 @@
-extern crate functional_from_zero;
+
 
 use std::{env, fs};
 use std::io::Read;
