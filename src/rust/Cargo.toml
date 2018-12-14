@@ -2,6 +2,7 @@
 name = "functional_from_zero"
 version = "0.1.0"
 authors = ["Peter Shih <peter50216@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 regex = "0.2"
