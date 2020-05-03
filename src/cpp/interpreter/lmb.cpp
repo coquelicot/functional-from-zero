@@ -2,10 +2,10 @@
 #include <sstream>
 #include <iostream>
 #include <deque>
-#include <vector>
 #include <map>
-#include <utility>
 #include <tuple>
+#include <utility>
+#include <vector>
 #include <memory>
 #include <cctype>
 #include <cassert>
@@ -66,15 +66,33 @@ struct hash_map_t {
 
 namespace std {
 
+    constexpr static size_t _combine(size_t a, size_t b) {
+        return a * 17 + b;
+    }
+
     template <typename U, typename V>
     struct hash<pair<U, V>> {
         hash<U> uhash;
         hash<V> vhash;
         size_t operator()(const pair<U, V> &p) const {
-            size_t tmp = uhash(p.first);
-            return tmp * 17 + vhash(p.second);
+            return _combine(uhash(p.first), vhash(p.second));
         }
     };
+
+    template <typename T, size_t idx=tuple_size<T>::value>
+    struct _tuple_hash {
+        _tuple_hash<T, idx-1> uhash;
+        hash<typename tuple_element<idx-1, T>::type> vhash;
+        size_t operator()(const T& t) const {
+            return _combine(uhash(t), vhash(get<idx-1>(t)));
+        }
+    };
+    template <typename T>
+    struct _tuple_hash<T, 0> {
+        size_t operator()(const T& t) const { return 0; }
+    };
+    template <typename... Args>
+    struct hash<tuple<Args...>> : _tuple_hash<tuple<Args...>> {};
 
     template <typename V>
     struct hash<vector<V>> {
@@ -82,7 +100,7 @@ namespace std {
         size_t operator()(const vector<V> &vs) const {
             size_t retv = 0;
             for (auto &v : vs)
-                retv = retv * 17 + vhash(v);
+                retv = _combine(retv, vhash(v));
             return retv;
         }
     };
@@ -90,14 +108,11 @@ namespace std {
 
 // }}}
 
+// lmb_t env_t expr_t {{{
+
 struct lmb_t;
 using lmb_idx_t = unsigned long;
 using lmb_hdr_t = shared_ptr<const lmb_t>;
-
-template <typename... Args>
-lmb_hdr_t make_lmb(Args&&... args) {
-    return make_shared<const lmb_t>(forward<Args>(args)...);
-}
 
 using env_t = vector<lmb_hdr_t>;
 using env_idx_t = vector<lmb_idx_t>;
@@ -111,11 +126,27 @@ struct shadow_env_t {
 };
 
 struct expr_t {
-    mutable hash_map_t<env_idx_t, lmb_hdr_t> cache;
+    mutable hash_map_t<env_idx_t, lmb_hdr_t> lmb_cache;
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const = 0;
     virtual ~expr_t() {};
 };
 using expr_hdr_t = shared_ptr<const expr_t>;
+
+template <typename T, typename... Args>
+struct cached_expr_t : public expr_t {
+
+    using key_t = tuple<Args...>;
+    static hash_map_t<key_t, expr_hdr_t> expr_cache;
+
+    static expr_hdr_t create(const Args&... args) {
+        auto &ref = expr_cache[key_t(args...)];
+        if (ref == nullptr)
+            return ref = make_shared<T>(args...);
+        return ref;
+    }
+};
+template <typename T, typename... Args>
+hash_map_t<typename cached_expr_t<T, Args...>::key_t, expr_hdr_t> cached_expr_t<T, Args...>::expr_cache;
 
 struct lmb_t {
 
@@ -124,7 +155,7 @@ struct lmb_t {
     const expr_hdr_t body;
     const env_t env;
     const lmb_idx_t idx;
-    mutable hash_map_t<lmb_idx_t, lmb_hdr_t> cache;
+    mutable hash_map_t<lmb_idx_t, lmb_hdr_t> eval_cache;
 
     template <typename EU>
     lmb_t(const expr_hdr_t& _body, EU&& _env) :
@@ -132,23 +163,23 @@ struct lmb_t {
 };
 lmb_idx_t lmb_t::gidx = 0;
 
-using arg_map_t = vector<size_t>;
-struct lmb_expr_t : public expr_t {
+template <typename... Args>
+lmb_hdr_t make_lmb(Args&&... args) {
+    return make_shared<const lmb_t>(forward<Args>(args)...);
+}
 
-    static hash_map_t<pair<expr_hdr_t, arg_map_t>, expr_hdr_t> expr_cache;
+// }}}
+
+// X_expr_t {{{
+
+using arg_map_t = vector<size_t>;
+struct lmb_expr_t : public cached_expr_t<lmb_expr_t, expr_hdr_t, arg_map_t> {
 
     const expr_hdr_t body;
     const arg_map_t arg_map;
 
     lmb_expr_t(const expr_hdr_t &_body, const arg_map_t &_arg_map) :
         body(_body), arg_map(_arg_map) {}
-
-    static expr_hdr_t create(const expr_hdr_t &body, const arg_map_t &arg_map) {
-        auto& ref = expr_cache[make_pair(body, arg_map)];
-        if (ref == nullptr)
-            ref = make_shared<lmb_expr_t>(body, arg_map);
-        return ref;
-    }
 
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
 
@@ -157,7 +188,7 @@ struct lmb_expr_t : public expr_t {
         for (auto idx : arg_map)
             ienv.emplace_back(env[idx]->idx);
 
-        auto &ref = body->cache[move(ienv)];
+        auto &ref = body->lmb_cache[move(ienv)];
         if (ref == nullptr) {
 
             env_t nenv;
@@ -171,11 +202,8 @@ struct lmb_expr_t : public expr_t {
         return ref;
     }
 };
-hash_map_t<pair<expr_hdr_t, arg_map_t>, expr_hdr_t> lmb_expr_t::expr_cache;
 
-struct apply_expr_t : public expr_t {
-
-    static hash_map_t<pair<expr_hdr_t, expr_hdr_t>, expr_hdr_t> expr_cache;
+struct apply_expr_t : public cached_expr_t<apply_expr_t, expr_hdr_t, expr_hdr_t> {
 
     const expr_hdr_t func;
     const expr_hdr_t arg;
@@ -186,24 +214,14 @@ struct apply_expr_t : public expr_t {
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         auto& lfunc = func->eval(env);
         auto& larg = arg->eval(env);
-        auto& ref = lfunc->cache[larg->idx];
+        auto& ref = lfunc->eval_cache[larg->idx];
         if (ref == nullptr)
             ref = lfunc->body->eval(shadow_env_t{larg, lfunc->env});
         return ref;
     }
-
-    static expr_hdr_t create(const expr_hdr_t &func, const expr_hdr_t &arg) {
-        auto& ref = expr_cache[make_pair(func, arg)];
-        if (ref == nullptr)
-            ref = make_shared<apply_expr_t>(func, arg);
-        return ref;
-    }
 };
-hash_map_t<pair<expr_hdr_t, expr_hdr_t>, expr_hdr_t> apply_expr_t::expr_cache;
 
-struct ref_expr_t : public expr_t {
-
-    static hash_map_t<size_t, expr_hdr_t> expr_cache;
+struct ref_expr_t : public cached_expr_t<ref_expr_t, size_t> {
 
     const size_t ref_idx;
 
@@ -212,17 +230,11 @@ struct ref_expr_t : public expr_t {
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         return env[ref_idx];
     }
-
-    static expr_hdr_t create(size_t ref_idx) {
-        auto& ref = expr_cache[ref_idx];
-        if (ref == nullptr)
-            ref = make_shared<ref_expr_t>(ref_idx);
-        return ref;
-    }
 };
-hash_map_t<size_t, expr_hdr_t> ref_expr_t::expr_cache;
 
-// parser {{{
+// }}}
+
+// tokenizer {{{
 
 struct tokenizer_t {
 
@@ -298,6 +310,10 @@ struct tokenizer_t {
 
 };
 
+// }}}
+
+// parser {{{
+
 struct parser_t {
 
     parser_t() {}
@@ -355,19 +371,22 @@ struct parser_t {
             return false;
 
         map<string, size_t> ref;
-        ref[""] = 0; // nullptr arg
         auto prog = parse_single_expr(tok, ref);
-        ref.erase("");
 
-        env_t nenv(ref.size());
+        lmb_hdr_t arg = nullptr;
+        env_t nenv(ref.size()-1);
         for (auto pair : ref) {
-            if (!env.count(pair.first))
-                std::cerr << pair.first << std::endl;
-            assert(env.count(pair.first));
-            nenv[pair.second-1] = env[pair.first];
+            if (!env.count(pair.first)) {
+                std::cerr << "Unknown ident: " << pair.first << std::endl;
+                return false;
+            } else if (pair.second > 0) {
+                nenv[pair.second-1] = env[pair.first];
+            } else {
+                arg = env[pair.first];
+            }
         }
 
-        prog->eval(shadow_env_t{nullptr, nenv});
+        prog->eval(shadow_env_t{arg, nenv});
         return true;
     }
 };
@@ -391,8 +410,6 @@ void output(int bit) {
 
 int input() {
 
-    // FIXME: how about eof?
-
     static int pos = -1;
     static int val = 0;
 
@@ -407,21 +424,21 @@ int input() {
 }
 
 
-struct builtin_p0_expr_t : public expr_t {
+struct builtin_p0_expr_t : public cached_expr_t<builtin_p0_expr_t> {
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         output(0);
         return env[0];
     }
 };
 
-struct builtin_p1_expr_t : public expr_t {
+struct builtin_p1_expr_t : public cached_expr_t<builtin_p1_expr_t> {
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         output(1);
         return env[0];
     }
 };
 
-struct builtin_g_expr_t : public expr_t {
+struct builtin_g_expr_t : public cached_expr_t<builtin_g_expr_t> {
     virtual const lmb_hdr_t& eval(const shadow_env_t &env) const {
         int bit = input();
         return bit == EOF ? env[3] : env[bit+1];
@@ -441,9 +458,18 @@ int main(int argc, char *args[]) {
     parser_t parser;
 
     map<string, lmb_hdr_t> env;
-    env["__builtin_p0"] = make_lmb(make_shared<builtin_p0_expr_t>(), env_t{});
-    env["__builtin_p1"] = make_lmb(make_shared<builtin_p1_expr_t>(), env_t{});
-    env["__builtin_g"] = make_lmb(make_shared<lmb_expr_t>(make_shared<lmb_expr_t>(make_shared<lmb_expr_t>(make_shared<builtin_g_expr_t>(), arg_map_t{1, 2, 0}), arg_map_t{1, 0}), arg_map_t{0}), env_t{});
+    env["__builtin_p0"] = make_lmb(builtin_p0_expr_t::create(), env_t{});
+    env["__builtin_p1"] = make_lmb(builtin_p1_expr_t::create(), env_t{});
+    env["__builtin_g"] = make_lmb(
+        lmb_expr_t::create(
+           lmb_expr_t::create(
+               lmb_expr_t::create(
+                    builtin_g_expr_t::create(),
+                    arg_map_t{1, 2, 0}),
+                arg_map_t{1, 0}),
+            arg_map_t{0}),
+        env_t{}
+    );
 
     while (parser.run_once(toks, env));
 }

@@ -1,8 +1,8 @@
-(__builtin_p1
- (__builtin_p0
-  (__builtin_p0
-   (__builtin_p0
-    (__builtin_p1
-     (__builtin_p1
-      (__builtin_p0
-       (__builtin_p0 __builtin_g))))))))
+((\const __builtin_p1
+ (const (__builtin_p0
+  (const (__builtin_p0
+   (const (__builtin_p0
+    (const (__builtin_p1
+     (const (__builtin_p1
+      (const (__builtin_p0
+       (const (__builtin_p0 (\x x)))))))))))))))) (\x \_ x))
