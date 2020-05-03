@@ -1,0 +1,448 @@
+#!./lmb
+# vi: set sw=2 ts=2 sts=2 :
+# {{{
+(
+# }}}
+
+# First of all, define 'def' so we can set things in a human readable way.
+(\p p (\v \f f v)) \def
+
+# Basic helper functions.
+def (\f \g \x f (g x)) \.
+def (\f (\x x x) (\x \v f (x x) v)) \Y
+def (Y \abort \x abort (\_ x)) \abort
+
+# Pair is the foundation of almost all other things, so we define it first.
+def (\a \b \f f a b) \pair
+def (
+  def (\a \b a) \f
+  \p p f
+) \first
+def (
+  def (\a \b b) \f
+  \p p f
+) \second
+
+# Try define condition.
+def (\t \f t) \1
+def (\t \f f) \0
+def (\b b 0 1) \not
+def (\b1 \b2 b1 b2 0) \and
+def (\b1 \b2 b1 1 b2) \or
+def (\b1 \b2 b1 (b2 1 0) (b2 0 1)) \bit.eq
+def (\b \t \f b t f 0) \if
+
+# maybe = {is_just value}
+def (\v pair 1 v) \just
+def (pair 0 0) \nothing
+def (first) \is_just
+def (. not is_just) \is_nothing
+def (second) \from_just
+
+# Okay, we're ready to have IO monad.
+# IO a :: w -> {a w}
+# return :: a -> IO a
+def (
+  # \a \w pair a w <=> pair
+  pair
+) \return
+# >>= :: IO a -> (a -> IO b) -> IO b
+def (
+  \io \f
+  # (pair a b) c <=> c a b
+  \w (io w) f
+) \>>=
+# Start our monad!
+(\p p 0 0) \_
+
+# Try wrap builtin funtions.
+def (
+  \b
+  def (b __builtin_p1 __builtin_p0) \p
+  \w
+  pair (p w) (\_ w)
+) \bit.put
+def (
+  def (__builtin_g (just 0) (just 1) nothing) \g
+  \w
+  pair (g w) (\_ w)
+) \bit.get
+
+# Our int is only 8bit QQ
+def (
+  \0 \1 \2 \3 \4 \5 \6 \7
+  \f f 0 1 2 3 4 5 6 7
+) \int
+def (
+  \ia
+  ia \a0 \a1 \a2 \a3 \a4 \a5 \a6 \a7
+  \ib
+  ib \b0 \b1 \b2 \b3 \b4 \b5 \b6 \b7
+  and (bit.eq a0 b0)
+  (and (bit.eq a1 b1)
+  (and (bit.eq a2 b2)
+  (and (bit.eq a3 b3)
+  (and (bit.eq a4 b4)
+  (and (bit.eq a5 b5)
+  (and (bit.eq a6 b6)
+  (bit.eq a7 b7)))))))
+) \int.eq
+def (
+  \i i \0 \1 \2 \3 \4 \5 \6 \7
+  >>= (bit.put 7) \_
+  >>= (bit.put 6) \_
+  >>= (bit.put 5) \_
+  >>= (bit.put 4) \_
+  >>= (bit.put 3) \_
+  >>= (bit.put 2) \_
+  >>= (bit.put 1) \_
+  (bit.put 0)
+) \int.put
+def (
+  >>= bit.get \7
+  >>= bit.get \6
+  >>= bit.get \5
+  >>= bit.get \4
+  >>= bit.get \3
+  >>= bit.get \2
+  >>= bit.get \1
+  >>= bit.get \0
+  # We assume that once bit.get returns nothing, it'll always be nothing.
+  # Therefore, we only need to check the last bit to ensure they're all set.
+  return (
+    if (is_just 0)
+      (\_ just (int (from_just 0) (from_just 1) (from_just 2) (from_just 3)
+                    (from_just 4) (from_just 5) (from_just 6) (from_just 7)))
+      (\_ nothing)
+  )
+) \int.get
+
+def (int 1 0 0 0 0 1 1 0) \$a
+def (int 0 1 0 0 0 1 1 0) \$b
+
+# test int.eq {{{
+if (int.eq $a $b) abort \_
+if (not (int.eq $a $a)) abort \_
+# }}}
+
+# list = maybe {head tail}
+def (nothing) \new_list
+def (\v \xs just (pair v xs)) \cons
+def (is_nothing) \is_empty
+def (. first from_just) \head
+def (. second from_just) \tail
+def (
+  Y \concat
+  \s1 \s2
+  if (is_empty s1)
+    (\_ s2)
+    (\_ cons (head s1) (concat (tail s1) s2))
+) \concat
+def (
+  Y \str.eq
+  \s1 \s2
+  if (is_empty s1) (\_ is_empty s2) \_
+  if (is_empty s2) (\_ 0) \_
+  if (int.eq (head s1) (head s2))
+    (\_ str.eq (tail s1) (tail s2))
+    (\_ 0)
+) \str.eq
+
+# array_x => {array_{x-1} array_{x-1}}
+# array_0 => maybe
+# array_7 => array
+def (
+  def (\x pair x x) \x2
+  x2 (x2 (x2 (x2 (x2 (x2 (x2 (x2 nothing)))))))
+) \new_array
+def (
+  def (\b b second first) \sel
+  \i
+  i \0 \1 \2 \3 \4 \5 \6 \7
+  \a
+  (sel 0 (sel 1 (sel 2 (sel 3 (sel 4 (sel 5 (sel 6 (sel 7 a))))))))
+) \array.get
+def (
+  def (\n \a pair (n (first a)) (second a)) \set_first
+  def (\n \a pair (first a) (n (second a))) \set_second
+  def (\b b set_second set_first) \sel
+  \i
+  i \0 \1 \2 \3 \4 \5 \6 \7
+  \v \a
+  (sel 7 (sel 6 (sel 5 (sel 4 (sel 3 (sel 2 (sel 1 (sel 0 (\_ just v))))))))) a
+) \array.set
+
+# array test {{{
+def (
+  def new_array \ary
+  if (is_just (array.get $a ary)) abort \_
+  def (array.set $a 0 ary) \ary
+  if (is_nothing (array.get $a ary)) abort \_
+  if (is_just (array.get $b ary)) abort \_
+  if (from_just (array.get $a ary)) abort \_
+  def (array.set $b 1 ary) \ary
+  if (is_nothing (array.get $b ary)) abort \_
+  if (not (from_just (array.get $b ary))) abort \_
+  if (from_just (array.get $a ary)) abort \_
+  def (array.set $b 0 ary) \ary
+  if (is_nothing (array.get $b ary)) abort \_
+  if (from_just (array.get $b ary)) abort \_
+  1
+) \_
+# }}}
+
+# trie is indexed with string (list of int)
+# trie :: {maybe, array}
+def (pair nothing new_array) \new_trie
+def (
+  Y \trie.get \s \t
+  if (is_empty s)
+    (\_ first t)
+    (\_ def (array.get (head s) (second t)) \mst
+        if (is_just mst)
+          (\_ trie.get (tail s) (from_just mst))
+          (\_ nothing))
+) \trie.get
+def (
+  Y \trie.set \s \v \t
+  if (is_empty s)
+    (\_ pair (just v) (second t))
+    (\_ def (array.get (head s) (second t)) \mst
+        def (if (is_just mst) (\_ from_just mst) (\_ new_trie)) \st
+        def (trie.set (tail s) v st) \st
+        pair (first t) (array.set (head s) st (second t)))
+) \trie.set
+
+# trie test {{{
+def (
+  def (cons $a (cons $b new_list)) \$ab
+  def (cons $a (cons $b (cons $a new_list))) \$aba
+  def (cons $a (cons $b (cons $b new_list))) \$abb
+  def new_trie \trie
+  if (is_just (trie.get $abb trie)) abort \_
+  def (trie.set $abb 1 trie) \trie
+  if (is_nothing (trie.get $abb trie)) abort \_
+  if (is_just (trie.get $ab trie)) abort \_
+  if (is_just (trie.get $aba trie)) abort \_
+  def (trie.set $ab 0 trie) \trie
+  if (is_nothing (trie.get $ab trie)) abort \_
+  if (is_nothing (trie.get $abb trie)) abort \_
+  if (from_just (trie.get $ab trie)) abort \_
+  if (not (from_just (trie.get $abb trie))) abort \_
+  def (trie.set $aba 0 trie) \trie
+  if (is_nothing (trie.get $aba trie)) abort \_
+  if (from_just (trie.get $aba trie)) abort \_
+  def (trie.set $aba 1 trie) \trie
+  if (not (from_just (trie.get $aba trie))) abort \_
+  if (from_just (trie.get $ab trie)) abort \_
+  1
+) \_
+# }}}
+
+# We now start to write our interpreter.
+# 1. read all input
+# 2. tokenize
+# 3. parser ast
+
+# Helpers to for parsing.
+def (int.eq (int 0 0 0 1 0 1 0 0)) \is_lb
+def (int.eq (int 1 0 0 1 0 1 0 0)) \is_rb
+def (int.eq (int 0 0 1 1 1 0 1 0)) \is_bs
+def (int.eq (int 0 0 0 0 0 1 0 0)) \is_sp
+def (int 0 1 0 1 0 0 0 0) \$ln
+def (int.eq $ln) \is_ln
+def (int 1 1 0 0 0 1 0 0) \$sharp
+def (int.eq $sharp) \is_sharp
+
+def (
+  Y \gets
+  >>= int.get \mc
+  if (is_nothing mc) (\_ return nothing) \_
+  def (from_just mc) \c
+  if (is_ln c) (\_ return (just (cons c new_list))) \_
+  >>= gets \s
+  if (is_just s) 
+    (\_ return (just (cons c (from_just s))))
+    (\_ return (just (cons c new_list)))
+) \gets
+
+def (
+  def (cons $sharp (cons $sharp (cons $sharp (cons $sharp (cons $sharp (cons $ln new_list)))))) \$cutoff
+  def (str.eq $cutoff) \is_cutoff
+  def (
+    Y \is_comment
+    \s
+    if (is_empty s) (\_ 0) \_
+    if (is_sharp (head s)) (\_ 1) \_
+    if (is_sp (head s)) (\_ is_comment (tail s)) \_
+    0
+  ) \is_comment
+  Y \read_all
+  >>= gets \ms
+  if (is_nothing ms) (\_ return new_list) \_
+  def (from_just ms) \s
+  if (is_cutoff s) (\_ return new_list) \_
+  >>= read_all \rest
+  if (is_comment s) (\_ return rest) \_
+  return (concat s rest)
+) \read_all
+
+def (
+  def (\c or (is_bs c) (or (is_lb c) (is_rb c))) \is_sym
+  def (\c or (is_sp c) (is_ln c)) \is_spc
+  def (\c or (is_sym c) (is_spc c)) \not_id
+  def (
+    Y \parse_id
+    \s
+    if (is_empty s) (\_ pair new_list s) \_
+    def (head s) \c
+    if (not_id c) (\_ pair new_list s) \_
+    def (parse_id (tail s)) \pts
+    pair (cons c (first pts)) (second pts)
+  ) \parse_id
+  Y \tokenize
+  \s
+  if (is_empty s) (\_ new_list) \_
+  def (head s) \c
+  if (is_spc c) (\_ tokenize (tail s)) \_
+  if (is_sym c) (\_ cons (cons c new_list) (tokenize (tail s))) \_
+  def (parse_id s) \pts
+  cons (first pts) (tokenize (second pts))
+) \tokenize
+
+# expr ::= expr term
+#        | term
+# term ::= id
+#        | \ id expr
+#        | ( expr )
+# expr :: env -> IO lmb
+# lmb :: lmb -> IO lmb
+
+# parse_expr :: maybe expr -> tokens -> {maybe expr  tokens}
+def (
+  Y \parse_expr
+  \last_expr \ts
+  # First of all, parse a term.
+  def (
+    if (is_empty ts) (\_ pair nothing ts) \_
+    def (head ts) \t
+    def (head t) \c
+    if (is_rb c) (\_ pair nothing ts) \_
+    # Is lambda?
+    if (is_bs c) (\_
+      # Take id.
+      def (tail ts) \ts
+      if (is_empty ts) abort \_
+      def (head ts) \id
+      # Parse the body of lambda.
+      def (parse_expr nothing (tail ts)) \pet
+      def (first pet) \expr
+      if (is_nothing expr) abort \_
+      def (from_just expr) \expr
+      # Compose expr.
+      pair
+        (just \env return (\arg expr (trie.set id arg env)))
+        (second pet)
+    ) \_
+    # Is nested expr?
+    if (is_lb c) (\_
+      # Parse nested expr recursively.
+      def (parse_expr nothing (tail ts)) \pet
+      def (first pet) \expr
+      if (is_nothing expr) abort \_
+      # Take right bracket.
+      def (second pet) \ts
+      if (is_empty ts) abort \_
+      if (not (is_rb (head (head ts)))) abort \_
+      # Done.
+      pair expr (tail ts)
+    ) \_
+    # Is identity.
+    def (
+      def (trie.get t) \get_lmb
+      \env
+      def (get_lmb env) \lmb
+      if (is_nothing lmb) abort \_
+      return (from_just lmb)
+    ) \expr
+    pair (just expr) (tail ts)
+  ) \pet
+  # If we can't parse a term, return what we've got.
+  if (is_nothing (first pet)) (\_ pair last_expr ts) \_
+  # Otherwise, combine the two expr.
+  def (
+    def (from_just (first pet)) \this_expr
+    # If last_expr is actually nothing, use this expr.
+    if (is_nothing last_expr) (\_ this_expr) \_
+    def (from_just last_expr) \last_expr
+    \env
+    >>= (last_expr env) \arg1
+    >>= (this_expr env) \arg2
+    arg1 arg2
+  ) \expr
+  # Then, parse the rest recursively.
+  parse_expr (just expr) (second pet)
+) \parse_expr
+# parse_expr :: tokens -> {maybe expr  tokens}
+def (parse_expr nothing) \parse_expr
+
+def (
+  def (int 1 1 1 1 1 0 1 0) \$_
+  def (int 0 1 0 0 0 1 1 0) \$b
+  def (int 1 0 1 0 1 1 1 0) \$u
+  def (int 1 0 0 1 0 1 1 0) \$i
+  def (int 0 0 1 1 0 1 1 0) \$l
+  def (int 0 0 1 0 1 1 1 0) \$t
+  def (int 0 1 1 1 0 1 1 0) \$n
+  def (int 0 0 0 0 1 1 1 0) \$p
+  def (int 0 0 0 0 1 1 0 0) \$0
+  def (int 1 0 0 0 1 1 0 0) \$1
+  def (int 1 1 1 0 0 1 1 0) \$g
+  # __builtin_x
+  def (\x (cons $_ (cons $_ (cons $b (cons $u (cons $i
+          (cons $l (cons $t (cons $i (cons $n (cons $_ x))))))))))) \add_prefix
+  def (add_prefix (cons $p (cons $0 new_list))) \$__builtin_p0
+  def (add_prefix (cons $p (cons $1 new_list))) \$__builtin_p1
+  def (add_prefix (cons $g new_list)) \$__builtin_g
+  def (
+    \r0 return \r1 return \re return \w
+    >>= bit.get \b
+    if (is_just b)
+      (\_ if (from_just b)
+            (\_ return r1)
+            (\_ return r0))
+      (\_ return re)
+  ) \do_get
+  trie.set $__builtin_p0 (\w >>= (bit.put 0) \_ return w) (
+    trie.set $__builtin_p1 (\w >>= (bit.put 1) \_ return w) (
+      trie.set $__builtin_g do_get new_trie))
+) \builtin_env
+
+def (
+  Y \puts \s
+  if (is_empty s)
+    (\_ return 0)
+    (\_ >>= (int.put (head s)) \_
+            puts (tail s))
+) \puts
+
+def (
+  Y \show \ts
+  if (is_empty ts)
+    (\_ return 0)
+    (\_ >>= (puts (head ts)) \_
+        >>= (int.put (int 0 1 0 1 0 0 0 0)) \_
+            show (tail ts))
+) \show
+
+>>= read_all \data
+>>= (puts data) \_
+def (tokenize data) \tokens
+def (parse_expr tokens) \pet
+if (is_nothing (first pet)) abort \_
+if (not (is_empty (second pet))) abort \_
+from_just (first pet) builtin_env
+
+# {{{
+)
+# }}}
