@@ -374,7 +374,7 @@ struct parser_t {
         auto prog = parse_single_expr(tok, ref);
 
         lmb_hdr_t arg = nullptr;
-        env_t nenv(ref.size()-1);
+        env_t nenv(ref.empty() ? 0 : ref.size() - 1);
         for (auto pair : ref) {
             if (!env.count(pair.first)) {
                 std::cerr << "Unknown ident: " << pair.first << std::endl;
