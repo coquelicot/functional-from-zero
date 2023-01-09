@@ -1,0 +1,253 @@
+#!./lmb
+# vi: set ts=2 sts=2 sw=2 :
+
+# {{{
+(
+
+(
+\next
+
+(\p p \v \f f v) \def
+
+def (\f (\x x x) (\x \v f (x x) v)) \Y
+def (Y \abort \x abort (\_ x)) \abort
+
+def (\a \b \f f a b) \pair
+def (\f \a \b f (pair a b)) \pair:
+def (\a \b a) \.first
+def (\a \b b) \.second
+
+# bool :: pair pair_op pair_op
+def (pair:) \bool:
+def (pair .first .second) \T
+def (pair .second .first) \F
+def (bool:\this pair (this .second) (this .first)) \.not
+def (bool:\this \b (pair b F) (this .first)) \.and
+def (bool:\this \b (pair T b) (this .first)) \.or
+def (bool:\this \t \f pair t f (this .first)) \.sel
+def (bool:\this \t \f pair t f (this .first) this) \.?
+
+# maybe :: pair is_just value
+def (pair:) \maybe:
+def (\v pair T v) \just
+def (pair F F) \nothing
+def (maybe:\this this .first) \.is_just
+def (maybe:\this this .first .not) \.is_nothing
+def (maybe:\this this .second) \.from_just
+def (maybe:\this \v this .is_just .sel (this .second) v) \.from_just_or
+
+# list :: maybe (pair H T)
+def (maybe:) \list:
+def (nothing) \empty_list
+def (list:\this this .is_nothing) \.is_empty
+def (list:\this this .from_just .first) \.head
+def (list:\this this .from_just .second) \.tail
+def (list:\this \v just (pair v this)) \.cons
+def (list:\this \v this .from_just_or (pair v empty_list) .first) \.head_or
+def (list:\this this .from_just_or (pair empty_list empty_list) .second) \.safe_tail
+
+# char :: list[bool; 8]
+def (list:) \char:
+def (\b7 \b6 \b5 \b4 \b3 \b2 \b1 \b0
+  empty_list .cons b7 .cons b6 .cons b5 .cons b4 .cons b3 .cons b2 .cons b1 .cons b0
+) \char
+def (char:\this this) \.bits
+def (char F F F F F F F F) \0
+def (
+  def (
+    Y \_inc \xs
+    xs .is_empty .? (\T xs) \F
+    xs .head .? (\T
+      _inc (xs .tail) .cons F
+    ) (\F
+      xs .tail .cons T
+    )
+  ) \_inc
+  char:\this _inc this
+) \.inc
+def (
+  def (
+    Y \_dec \xs
+    xs .is_empty .? (\T xs) \F
+    xs .head .? (\T
+      xs .tail .cons F
+    ) (\F
+      _dec (xs .tail) .cons T
+    )
+  ) \_dec
+  char:\this _dec this
+) \.dec
+def (
+  def (
+    Y \_is_0 \xs
+    xs .is_empty .? (\T T) \F
+    xs .head .? (\T F) \F
+    _is_0 (xs .tail)
+  ) \_is_0
+  char:\this _is_0 this
+) \.is_0
+
+# tape :: pair char (pair list[char] list[char])
+def (pair:) \tape:
+def (pair 0 (pair empty_list empty_list)) \empty_tape
+def (tape:\this this .first) \.*ptr
+def (tape:\this \v pair v (this .second)) \.*ptr=
+def (tape:\this this .*ptr= (this .*ptr .inc)) \.++*ptr
+def (tape:\this this .*ptr= (this .*ptr .dec)) \.--*ptr
+def (
+  tape:\this
+  pair
+    (this .second .second .head_or 0)
+    (pair
+      (this .second .first .cons (this .first))
+      (this .second .second .safe_tail))
+) \.++ptr
+def (
+  tape:\this
+  pair
+    (this .second .first .head_or 0)
+    (pair
+      (this .second .first .safe_tail)
+      (this .second .second .cons (this .first)))
+) \.--ptr
+
+# IO a ::= pair T (w -> pair a w)
+def (pair:) \io:
+def (pair T) \mkio
+def (io:\this \w this .second w) \.runio
+# (IO a) >>= (a -> IO b) ::= IO b
+def (
+  io:\this \f
+  mkio \w
+  def (this .runio w) \aw
+  f (aw .first) .runio (aw .second)
+) \>>=
+# return ::= a -> IO a
+def (
+  \a mkio \w pair a w
+) \return
+
+# world ::= list[ops]
+def (empty_list) \new_world
+# getb ::= IO (maybe bool)
+def (
+  def (__builtin_g (just F) (just T) nothing) \getb
+  mkio \w
+  pair (getb w) (w .cons getb)
+) \getbool
+# putb ::= b -> IO ?
+def (
+  bool:\b
+  def (b .sel __builtin_p1 __builtin_p0) \putb
+  mkio \w
+  pair (putb w) (w .cons putb)
+) \.putbool
+# getc ::= IO (maybe char)
+def (
+  getbool >>= \mb7
+  getbool >>= \mb6
+  getbool >>= \mb5
+  getbool >>= \mb4
+  getbool >>= \mb3
+  getbool >>= \mb2
+  getbool >>= \mb1
+  getbool >>= \mb0
+  mb0 .is_just .? (\T
+    return (just (char
+      (mb7 .from_just)
+      (mb6 .from_just)
+      (mb5 .from_just)
+      (mb4 .from_just)
+      (mb3 .from_just)
+      (mb2 .from_just)
+      (mb1 .from_just)
+      (mb0 .from_just)))
+  ) (\F
+    return nothing
+  )
+) \getchar
+# putc ::= char -> IO ?
+def (
+  def (Y \_putc \xs
+    xs .is_empty .? (\T return T) (\F
+      _putc (xs .tail) >>= \_
+      xs .head .putbool
+    )
+  ) \_putc
+  char:\c _putc (c .bits)
+) \.putchar
+
+# Enter IO
+(\p p T .runio new_world) \T
+
+# bf ::= list[tape -> IO tape]
+def (list:) \bf:
+def (empty_list .cons return) \empty_bf
+def (
+  \op
+  bf:\this
+  def (\tape this .head tape >>= op) \nact
+  this .tail .cons nact
+) \mkbfop
+def (mkbfop \tape return (tape .++*ptr)) \.+
+def (mkbfop \tape return (tape .--*ptr)) \.-
+def (mkbfop \tape return (tape .++ptr)) \.>
+def (mkbfop \tape return (tape .--ptr)) \.<
+def (mkbfop \tape
+  tape .*ptr .putchar >>= \_
+  return tape
+) \..
+def (mkbfop \tape
+  getchar >>= \mb
+  mb .is_nothing .? abort \F
+  return (tape .*ptr= (mb .from_just))
+) \.,
+def (
+  bf:\this
+  this .cons return
+) \.[
+def (
+  bf:\this
+  def (Y \loop \tape
+    tape .*ptr .is_0 .? (\T
+      return tape
+    ) (\F
+      this .head tape >>= loop
+    )
+  ) \loop
+  def (\tape this .tail .head tape >>= loop) \nact
+  this .tail .tail .cons nact
+) \.]
+def (
+  bf:\this
+  this .head empty_tape
+) \.runbf
+
+next abort abort abort .+ .- .< .> .. ., .[ .] empty_bf .runbf
+)
+# }}}
+
+# {{{
+\__builtin_p0 \__builtin_p1 \__builtin_g
+\+ \- \< \> \. \, \[ \] \```bf \```
+# }}}
+
+# sample program that output fibonacci sequence
+```bf
++ + + + + + + + + + +
+> + > > > > + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + +
+> + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + < < < < < < [ > [ > > > > > > + >
++ < < < < < < < - ] > > > > > > > [ < < < < < < < + > > > > > > > - ] < [ > + + + + + + + + + + [ -
+< - [ > > + > + < < < - ] > > > [ < < < + > > > - ] + < [ > [ - ] < [ - ] ] > [ < < [ > > > + < < <
+- ] > > [ - ] ] < < ] > > > [ > > + > + < < < - ] > > > [ < < < + > > > - ] + < [ > [ - ] < [ - ] ]
+> [ < < + > > [ - ] ] < < < < < < < ] > > > > > [ + + + + + + + + + + + + + + + + + + + + + + + + +
++ + + + + + + + + + + + + + + + + + + + + + + . [ - ] ] + + + + + + + + + + < [ - > - < ] > + + + +
++ + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + . [ - ] < <
+< < < < < < < < < < [ > > > + > + < < < < - ] > > > > [ < < < < + > > > > - ] < - [ > > . > . < < <
+[ - ] ] < < [ > > + > + < < < - ] > > > [ < < < + > > > - ] < < [ < + > - ] > [ < + > - ] < < < - ]
+
+```
+
+# {{{
+)
+# }}}
